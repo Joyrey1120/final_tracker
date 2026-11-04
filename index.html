@@ -144,7 +144,24 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
 </script>
-<script>
+  <!-- FIREBASE + FIRESTORE (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script>
+    // Your Firebase config (copy exactly from the console)
+    const firebaseConfig = {
+      apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
+      authDomain: "final-tracker-743c3.firebaseapp.com",
+      projectId: "final-tracker-743c3",
+      storageBucket: "final-tracker-743c3.appspot.com",
+      messagingSenderId: "894996278217",
+      appId: "1:894996278217:web:344459a604f58e69efd618",
+      measurementId: "G-DV3H7ESV67"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const dbCloud = firebase.firestore();
+    const docRef  = dbCloud.collection("prototypes").doc("isp-tracker");
+  </script><script>
 "use strict";
 
 const KEY = "isp-tracker-prototype-v1";
@@ -187,16 +204,31 @@ const money = c => new Intl.NumberFormat("en-PH", {
 const sum = rows => rows.reduce((total,row)=>total+row.amount,0);
 
 let db;
-try {
-  db = JSON.parse(localStorage.getItem(KEY)) || {
-    users:[{
-      id:"admin", name:"Administrator", email:"admin@example.test",
-      mobile:"", role:"admin"
-    }],
-    plans:[], clients:[], invoices:[], payments:[], reversals:[],
-    expenses:[], labels:["Fuel","Cash","Rent","ISP Payment","Others"],
-    handovers:[], shifts:[], audit:[]
-  };
+// Load or initialize the shared "db" from Firestore
+async function loadDb() {
+  const snap = await docRef.get();
+  if (snap.exists) {
+    db = snap.data();
+  } else {
+    db = {
+      users:[{ id:"admin",name:"Administrator",email:"admin@example.test",mobile:"",role:"admin" }],
+      plans:[], clients:[], invoices:[], payments:[], reversals:[],
+      expenses:[], labels:["Fuel","Cash","Rent","ISP Payment","Others"],
+      handovers:[], shifts:[], audit:[]
+    };
+    await docRef.set(db);
+  }
+}
+
+// Override save() to write to Firestore instead of localStorage
+async function save() {
+  try {
+    await docRef.set(db);
+  } catch (e) {
+    alert("SAVE FAILED: " + e.message);
+    throw e;
+  }
+}
 } catch {
   document.body.innerHTML="<p>Stored data could not be read. Do not overwrite it.</p>";
   throw Error("Unable to load stored data");
@@ -1261,8 +1293,15 @@ window.addEventListener("beforeunload",event=>{
   }
 });
 
-accountOptions();
-render();
+// Bootstrap app after Firestore loads
+loadDb()
+  .then(() => {
+    accountOptions();
+    render();
+  })
+  .catch(e => {
+    alert("Failed to load data: " + e.message);
+  });
 </script>
 </body>
 </html>
