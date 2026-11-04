@@ -97,7 +97,27 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   th,td { padding:8px }
 }
 </style>
-</head>
+  <!-- FIREBASE & FIRESTORE (compat) loaded in <head> -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script>
+    // Your exact Firebase config from the console
+    const firebaseConfig = {
+      apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
+      authDomain: "final-tracker-743c3.firebaseapp.com",
+      projectId: "final-tracker-743c3",
+      storageBucket: "final-tracker-743c3.appspot.com",
+      messagingSenderId: "894996278217",
+      appId: "1:894996278217:web:344459a604f58e69efd618",
+      measurementId: "G-DV3H7ESV67"
+    };
+    // Initialize Firebase + Firestore
+    firebase.initializeApp(firebaseConfig);
+    const dbCloud = firebase.firestore();
+    // Shared document for your prototype state:
+    const docRef  = dbCloud.collection("prototypes").doc("isp-tracker");
+    console.log("✅ Firebase initialized", { dbCloud, docRef });
+  </script></head>
 <body>
 <header>
   <div>
