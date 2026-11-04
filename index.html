@@ -203,25 +203,25 @@ const sum = rows => rows.reduce((total,row)=>total+row.amount,0);
 let db;
 // Load or initialize the shared "db" from Firestore
 async function loadDb() {
-  const snap = await getDoc(docRef);
+  // note the window. prefix
+  const snap = await window.getDoc(window.docRef);
   if (snap.exists()) {
     db = snap.data();
   } else {
-    // initial empty structure
     db = {
       users:[{ id:"admin", name:"Administrator", email:"admin@example.test", mobile:"", role:"admin" }],
       plans:[], clients:[], invoices:[], payments:[], reversals:[],
       expenses:[], labels:["Fuel","Cash","Rent","ISP Payment","Others"],
       handovers:[], shifts:[], audit:[]
     };
-    await setDoc(docRef, db);
+    await window.setDoc(window.docRef, db);
   }
 }
 
 // Override save() to write to Firestore instead of localStorage
 async function save() {
   try {
-    await setDoc(docRef, db);
+    await window.setDoc(window.docRef, db);
   } catch (e) {
     alert("SAVE FAILED: " + e.message);
     throw e;
