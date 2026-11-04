@@ -122,19 +122,25 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 <dialog id="modal"></dialog>
 <div id="notice" hidden></div>
 <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
+  // Import the functions you need from the SDKs
+  import { initializeApp } from
+    "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
+  import { getAnalytics } from
+    "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
+  import {
+    getFirestore,
+    doc,
+    getDoc,
+    setDoc
+  } from
+    "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
   // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
   const firebaseConfig = {
     apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
     authDomain: "final-tracker-743c3.firebaseapp.com",
     projectId: "final-tracker-743c3",
-    storageBucket: "final-tracker-743c3.firebasestorage.app",
+    storageBucket: "final-tracker-743c3.appspot.com",
     messagingSenderId: "894996278217",
     appId: "1:894996278217:web:344459a604f58e69efd618",
     measurementId: "G-DV3H7ESV67"
@@ -143,6 +149,12 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
+
+  // Initialize Firestore
+  const dbCloud = getFirestore(app);
+
+  // Reference a single document to hold your entire data object
+  const docRef = doc(dbCloud, "prototypes", "isp-tracker");
 </script>
 <script>
 "use strict";
