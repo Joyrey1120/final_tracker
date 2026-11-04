@@ -122,7 +122,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 <dialog id="modal"></dialog>
 <div id="notice" hidden></div>
 <script type="module">
-  // 1) FIREBASE & FIRESTORE IMPORTS
+  // 1) FIREBASE + FIRESTORE IMPORTS
   import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
   import { getAnalytics }  from "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
   import {
@@ -134,7 +134,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 
   // 2) INITIALIZE FIREBASE & FIRESTORE
   const firebaseConfig = {
-    apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
+    apiKey: "AIzaSy…",
     authDomain: "final-tracker-743c3.firebaseapp.com",
     projectId: "final-tracker-743c3",
     storageBucket: "final-tracker-743c3.appspot.com",
@@ -147,21 +147,44 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   const dbCloud   = getFirestore(app);
   const docRef    = doc(dbCloud, "prototypes", "isp-tracker");
 
-  // 3) YOUR APP CODE (paste everything you had in your old <script> here)
+  // 3) YOUR APP CODE HERE
   "use strict";
   const KEY = "isp-tracker-prototype-v1";
   const $   = id => document.getElementById(id);
-  // … all of your helpers, functions, loadDb(), save(), render(), etc. …
-  // … through the final loadDb().then(() => { accountOptions(); render(); }) …
+  const uuid = () => crypto.randomUUID();
+  // … all of your helper functions, loadDb(), save(), render(), clientForm(), paymentsView(), etc …
+  // right through:
+  //
+  // loadDb()
+  //   .then(()=>{
+  //     accountOptions();
+  //     render();
+  //   })
+  //   .catch(error=>{
+  //     alert("Failed to load data: "+error.message);
+  //   });
 
-  // 4) FINALLY, START THE APP
+  // 4) EXPOSE INLINE‐HANDLER FUNCTIONS TO window
+  window.toggleShift      = toggleShift;
+  window.logout           = logout;
+  window.go               = go;
+  window.selectDay        = selectDay;
+  window.setMonth         = setMonth;
+  window.paymentForm      = paymentForm;
+  window.statement        = statement;
+  window.receipt          = receipt;
+  window.reversePayment   = reversePayment;
+  window.confirmHandover  = confirmHandover;
+  // (Add any other functions you call via onclick in your HTML)
+
+  // 5) BOOTSTRAP AFTER Firestore LOADED
   loadDb()
-    .then(() => {
+    .then(()=>{
       accountOptions();
       render();
     })
-    .catch(error => {
-      alert("Failed to load data: " + error.message);
+    .catch(e=>{
+      alert("Failed to load data: " + e.message);
     });
 </script>
 </body>
