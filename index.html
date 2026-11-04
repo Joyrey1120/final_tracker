@@ -121,71 +121,27 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 <main id="main"></main>
 <dialog id="modal"></dialog>
 <div id="notice" hidden></div>
-<script type="module">
-  // 1) FIREBASE + FIRESTORE IMPORTS
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-  import { getAnalytics }  from "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
-  import {
-    getFirestore,
-    doc,
-    getDoc,
-    setDoc
-  } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
-
-  // 2) INITIALIZE FIREBASE & FIRESTORE
-  const firebaseConfig = {
-    apiKey: "AIzaSy…",
-    authDomain: "final-tracker-743c3.firebaseapp.com",
-    projectId: "final-tracker-743c3",
-    storageBucket: "final-tracker-743c3.appspot.com",
-    messagingSenderId: "894996278217",
-    appId: "1:894996278217:web:344459a604f58e69efd618",
-    measurementId: "G-DV3H7ESV67"
-  };
-  const app       = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
-  const dbCloud   = getFirestore(app);
-  const docRef    = doc(dbCloud, "prototypes", "isp-tracker");
-
-  // 3) YOUR APP CODE HERE
-  "use strict";
-  const KEY = "isp-tracker-prototype-v1";
-  const $   = id => document.getElementById(id);
-  const uuid = () => crypto.randomUUID();
-  // … all of your helper functions, loadDb(), save(), render(), clientForm(), paymentsView(), etc …
-  // right through:
-  //
-  // loadDb()
-  //   .then(()=>{
-  //     accountOptions();
-  //     render();
-  //   })
-  //   .catch(error=>{
-  //     alert("Failed to load data: "+error.message);
-  //   });
-
-  // 4) EXPOSE INLINE‐HANDLER FUNCTIONS TO window
-  window.toggleShift      = toggleShift;
-  window.logout           = logout;
-  window.go               = go;
-  window.selectDay        = selectDay;
-  window.setMonth         = setMonth;
-  window.paymentForm      = paymentForm;
-  window.statement        = statement;
-  window.receipt          = receipt;
-  window.reversePayment   = reversePayment;
-  window.confirmHandover  = confirmHandover;
-  // (Add any other functions you call via onclick in your HTML)
-
-  // 5) BOOTSTRAP AFTER Firestore LOADED
-  loadDb()
-    .then(()=>{
-      accountOptions();
-      render();
-    })
-    .catch(e=>{
-      alert("Failed to load data: " + e.message);
-    });
+  <!-- Firebase App (the core Firebase SDK) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <!-- Firebase Firestore (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script>
+    // Your Firebase project configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
+      authDomain: "final-tracker-743c3.firebaseapp.com",
+      projectId: "final-tracker-743c3",
+      storageBucket: "final-tracker-743c3.appspot.com",
+      messagingSenderId: "894996278217",
+      appId: "1:894996278217:web:344459a604f58e69efd618",
+      measurementId: "G-DV3H7ESV67"
+    };
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    // Get a Firestore instance
+    const dbCloud = firebase.firestore();
+    // Reference a single shared document
+    const docRef = dbCloud.collection("prototypes").doc("isp-tracker");
 </script>
 </body>
 </html>
