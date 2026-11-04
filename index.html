@@ -153,7 +153,10 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   const dbCloud = getFirestore(app);
 
   // Reference a single document to hold your entire "db"
-  const docRef = doc(dbCloud, "prototypes", "isp-tracker");
+  // Expose these to your non-module script
+window.docRef  = doc(dbCloud, "prototypes", "isp-tracker");
+window.getDoc  = getDoc;
+window.setDoc  = setDoc;
 </script>
 <script>
 "use strict";
