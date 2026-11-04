@@ -122,20 +122,19 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 <dialog id="modal"></dialog>
 <div id="notice" hidden></div>
 <script type="module">
-  // Import the functions you need from the SDKs
-  import { initializeApp } from
-    "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-  import { getAnalytics } from
-    "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
+  // Firebase core + analytics (you can keep or remove analytics)
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
+  import { getAnalytics }  from "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
+
+  // Firestore functions we need
   import {
     getFirestore,
     doc,
     getDoc,
     setDoc
-  } from
-    "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+  } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
-  // Your web app's Firebase configuration
+  // Your web app’s Firebase configuration (from your console)
   const firebaseConfig = {
     apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
     authDomain: "final-tracker-743c3.firebaseapp.com",
@@ -146,14 +145,14 @@ label input,label select,label textarea { width:100%; margin-top:5px }
     measurementId: "G-DV3H7ESV67"
   };
 
-  // Initialize Firebase
+  // Initialize Firebase & Analytics
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
 
   // Initialize Firestore
   const dbCloud = getFirestore(app);
 
-  // Reference a single document to hold your entire data object
+  // Reference a single document to hold your entire "db"
   const docRef = doc(dbCloud, "prototypes", "isp-tracker");
 </script>
 <script>
