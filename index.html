@@ -122,7 +122,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 <dialog id="modal"></dialog>
 <div id="notice" hidden></div>
 <script type="module">
-  // 1) FIREBASE + FIRESTORE IMPORTS
+  // 1) FIREBASE & FIRESTORE IMPORTS
   import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
   import { getAnalytics }  from "https://www.gstatic.com/firebasejs/13.2.0/firebase-analytics.js";
   import {
@@ -134,7 +134,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 
   // 2) INITIALIZE FIREBASE & FIRESTORE
   const firebaseConfig = {
-    apiKey: "AIza…",
+    apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
     authDomain: "final-tracker-743c3.firebaseapp.com",
     projectId: "final-tracker-743c3",
     storageBucket: "final-tracker-743c3.appspot.com",
@@ -147,22 +147,22 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   const dbCloud   = getFirestore(app);
   const docRef    = doc(dbCloud, "prototypes", "isp-tracker");
 
-  // 3) YOUR ENTIRE APP CODE (copy & paste your old <script> block here)
+  // 3) YOUR APP CODE (paste everything you had in your old <script> here)
   "use strict";
+  const KEY = "isp-tracker-prototype-v1";
+  const $   = id => document.getElementById(id);
+  // … all of your helpers, functions, loadDb(), save(), render(), etc. …
+  // … through the final loadDb().then(() => { accountOptions(); render(); }) …
 
-  // — all of your helpers, loadDb(), save(), render(), forms, etc. —
-  // exactly as it was in your plain <script> … right up to…
-
-  // 4) BOOTSTRAP AFTER FIRESTORE LOADS
+  // 4) FINALLY, START THE APP
   loadDb()
     .then(() => {
       accountOptions();
       render();
     })
-    .catch(e => {
-      alert("Failed to load data: " + e.message);
+    .catch(error => {
+      alert("Failed to load data: " + error.message);
     });
-</script>
 </script>
 </body>
 </html>
