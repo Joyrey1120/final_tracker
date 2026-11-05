@@ -35,10 +35,10 @@ jobs:
           from pathlib import Path
           import re
           html = Path("index.html").read_text(encoding="utf-8")
-          scripts = re.findall(r'<script(?![^>]*\\bsrc=)[^>]*>(.*?)</script>', html, flags=re.I|re.S)
+          scripts = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', html, flags=re.I|re.S)
           if not scripts:
               raise SystemExit("No inline JavaScript blocks found")
-          Path("/tmp/inline-check.js").write_text("\\n;\\n".join(scripts), encoding="utf-8")
+          Path("/tmp/inline-check.js").write_text("\n;\n".join(scripts), encoding="utf-8")
           print(f"Found {len(scripts)} inline script block(s)")
           PY
           node --check /tmp/inline-check.js
