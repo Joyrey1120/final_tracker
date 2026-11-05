@@ -97,6 +97,30 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   th,td { padding:8px }
 }
 </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>ISP Payment Tracker</h1>
+    <small>Philippine pesos · Philippine billing dates</small>
+  </div>
+  <div class="toolbar" style="margin:0">
+    <select id="account" aria-label="Demo account"></select>
+    <button id="shiftButton" onclick="toggleShift()">Start shift</button>
+    <button onclick="logout()">Log out</button>
+  </div>
+</header>
+
+<div class="banner">
+  <strong>LOCAL TEST PROTOTYPE:</strong>
+  No secure login, cloud sync, or automatic emails.
+  Use sample data only. Account switching is provided for testing.
+</div>
+
+<nav id="nav"></nav>
+<main id="main"></main>
+<dialog id="modal"></dialog>
+<div id="notice" hidden></div>
   <!-- Firebase is loaded once and initialized once. -->
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
