@@ -1330,6 +1330,27 @@ auth.onAuthStateChanged(async authUser=>{
     render();
     return;
   }
+  if (!authUser.emailVerified) {
+    $("nav").innerHTML="";
+    $("logoutButton").hidden=false;
+    $("signedInAs").textContent=authUser.email;
+    $("main").innerHTML=`<div class="card"><h2>Verify your administrator email</h2>
+      <p>Firebase requires the owner email to be verified before the tracker can access business records.</p>
+      <div class="toolbar"><button class="primary" id="sendVerification">Send verification email</button>
+      <button id="checkVerification">I have verified — check again</button></div>
+      <p id="verificationMessage" role="status"></p></div>`;
+    $("sendVerification").onclick=async()=>{
+      try { await authUser.sendEmailVerification(); $("verificationMessage").textContent="Verification email sent. Check your inbox and spam folder."; }
+      catch(error){$("verificationMessage").textContent="Could not send verification email: "+error.message;}
+    };
+    $("checkVerification").onclick=async()=>{
+      try { await auth.currentUser.reload(); signedInUser=auth.currentUser;
+        if(auth.currentUser.emailVerified) window.location.reload();
+        else $("verificationMessage").textContent="The email is not verified yet.";
+      } catch(error){$("verificationMessage").textContent="Could not check verification: "+error.message;}
+    };
+    return;
+  }
   try {
     await loadDb();
     if (!db.users) db.users=[];
