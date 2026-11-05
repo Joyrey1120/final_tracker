@@ -203,7 +203,7 @@ async function save() {
   try {
     await docRef.set(db);
   } catch(e) {
-    alert("SAVE FAILED: " + e.message);
+    console.error("Save failed:",e);
     throw e;
   }
 }
@@ -215,7 +215,7 @@ let selectedDay = today();
 let clientQuery = "";
 
 const user = () => db?.users?.find(u=>u.id===userId);
-const admin = () => !!signedInUser && signedInUser.email===ADMIN_EMAIL && user()?.role==="admin";
+const admin = () => !!signedInUser && (signedInUser.email||"").toLowerCase()===ADMIN_EMAIL && user()?.role==="admin";
 
 function requireUser() {
   if (!signedInUser || !user()) throw Error("Please sign in with the authorized administrator account.");
@@ -244,7 +244,9 @@ async function commit(action,entity) {
     notify("Saved successfully.");
     render();
   } catch(error) {
-    notify("Save failed. Do not repeat the transaction until the data is checked: "+error.message);
+    try { await loadDb(); } catch(reloadError) { console.error("Reload after failed save also failed:",reloadError); }
+    notify("Save failed; the latest saved data has been reloaded. Verify the record before trying again: "+error.message);
+    render();
   }
 }
 
@@ -379,7 +381,7 @@ function render() {
   $("shiftButton")?.setAttribute("hidden","");
   ensureBills();
   const pages=["Dashboard","Clients","Payments","Expenses","Calendar","Cash","Reminders"];
-  if (admin()) pages.push("Plans","Staff","Reports");
+  if (admin()) pages.push("Plans","Reports");
   if (!pages.includes(page)) page="Dashboard";
   $("nav").innerHTML=pages.map(p=>`<button class="${page===p?"active":""}"
     onclick="go('${p}')">${p}</button>`).join("");
@@ -1183,8 +1185,7 @@ async function importCSV(input) {
           if (isoDate) dueText=isoDate[1];
           else if (/^\d{1,2}$/.test(dueDateText)) dueText=dueDateText;
           else if (slashDate) {
-            const parts=dueDateText.split("/");
-            dueText=parts[1];
+            throw Error("Ambiguous slash date. Use YYYY-MM-DD or provide a due-day number in a Due Day column.");
           }
         }
         const due=dueText?Number(dueText):null;
