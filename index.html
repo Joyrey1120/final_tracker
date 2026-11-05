@@ -200,29 +200,34 @@ async function loadDb() {
   }
 }
 
-// Optimistic revision check prevents one browser tab silently overwriting
-// a newer saved version from another tab/device.
-async function save() {
-  try {
-    const nextRevision = await dbCloud.runTransaction(async transaction => {
-      const snap = await transaction.get(docRef);
-      const currentRevision = snap.exists ? Number(snap.data()._revision || 0) : 0;
-      if (currentRevision !== Number(db._revision || 0)) {
-        throw Error("The database changed in another session. Reload the tracker before saving again.");
-      }
-      const revision = currentRevision + 1;
-      transaction.set(docRef, {
-        ...db,
-        _revision:revision,
-        _updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+// Queue local writes and compare revisions so two rapid actions in this tab
+// do not race each other or silently overwrite a newer session's data.
+let saveQueue = Promise.resolve();
+function save() {
+  const task = saveQueue.then(async()=>{
+    try {
+      const nextRevision = await dbCloud.runTransaction(async transaction => {
+        const snap = await transaction.get(docRef);
+        const currentRevision = snap.exists ? Number(snap.data()._revision || 0) : 0;
+        if (currentRevision !== Number(db._revision || 0)) {
+          throw Error("The database changed in another session. Reload the tracker before saving again.");
+        }
+        const revision = currentRevision + 1;
+        transaction.set(docRef, {
+          ...db,
+          _revision:revision,
+          _updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return revision;
       });
-      return revision;
-    });
-    db._revision = nextRevision;
-  } catch(e) {
-    console.error("Save failed:",e);
-    throw e;
-  }
+      db._revision = nextRevision;
+    } catch(e) {
+      console.error("Save failed:",e);
+      throw e;
+    }
+  });
+  saveQueue = task.catch(()=>{});
+  return task;
 }
 let userId = null;
 let signedInUser = null;
