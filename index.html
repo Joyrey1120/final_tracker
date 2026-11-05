@@ -97,11 +97,10 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   th,td { padding:8px }
 }
 </style>
-  <!-- FIREBASE & FIRESTORE (compat) loaded in <head> -->
+  <!-- Firebase is loaded once and initialized once. -->
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
   <script>
-    // Your exact Firebase config from the console
     const firebaseConfig = {
       apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
       authDomain: "final-tracker-743c3.firebaseapp.com",
@@ -111,72 +110,11 @@ label input,label select,label textarea { width:100%; margin-top:5px }
       appId: "1:894996278217:web:344459a604f58e69efd618",
       measurementId: "G-DV3H7ESV67"
     };
-    // Initialize Firebase + Firestore
-    firebase.initializeApp(firebaseConfig);
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const dbCloud = firebase.firestore();
-    // Shared document for your prototype state:
-    const docRef  = dbCloud.collection("prototypes").doc("isp-tracker");
-    console.log("✅ Firebase initialized", { dbCloud, docRef });
-  </script></head>
-<body>
-<header>
-  <div>
-    <h1>ISP Payment Tracker</h1>
-    <small>Philippine pesos · Philippine billing dates</small>
-  </div>
-  <div class="toolbar" style="margin:0">
-    <select id="account" aria-label="Demo account"></select>
-    <button id="shiftButton" onclick="toggleShift()">Start shift</button>
-    <button onclick="logout()">Log out</button>
-  </div>
-</header>
-
-<div class="banner">
-  <strong>LOCAL TEST PROTOTYPE:</strong>
-  No secure login, cloud sync, or automatic emails.
-  Use sample data only. Account switching is provided for testing.
-</div>
-
-<nav id="nav"></nav>
-<main id="main"></main>
-<dialog id="modal"></dialog>
-<div id="notice" hidden></div>
-  <!-- FIREBASE + FIRESTORE (compat) -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-  <script>
-    // Your Firebase config (copy exactly from the console)
-    const firebaseConfig = {
-      apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
-      authDomain: "final-tracker-743c3.firebaseapp.com",
-      projectId: "final-tracker-743c3",
-      storageBucket: "final-tracker-743c3.appspot.com",
-      messagingSenderId: "894996278217",
-      appId: "1:894996278217:web:344459a604f58e69efd618",
-      measurementId: "G-DV3H7ESV67"
-    };
-    firebase.initializeApp(firebaseConfig);
-    const dbCloud = firebase.firestore();
-    const docRef  = dbCloud.collection("prototypes").doc("isp-tracker");
+    const docRef = dbCloud.collection("prototypes").doc("isp-tracker");
   </script>
-  <!-- FIREBASE compat -->
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-<script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyC23pFq7rkmPxxfbfstHNNoO41ICKk8EN4",
-    authDomain: "final-tracker-743c3.firebaseapp.com",
-    projectId: "final-tracker-743c3",
-    storageBucket: "final-tracker-743c3.appspot.com",
-    messagingSenderId: "894996278217",
-    appId: "1:894996278217:web:344459a604f58e69efd618",
-    measurementId: "G-DV3H7ESV67"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const dbCloud = firebase.firestore();
-  // we’ll store everything in this one document
-  const docRef  = dbCloud.collection("prototypes").doc("isp-tracker");
-</script><script>
+  <script>
 "use strict";
 
 const KEY = "isp-tracker-prototype-v1";
@@ -244,10 +182,6 @@ async function save() {
     throw e;
   }
 }
-} catch {
-  document.body.innerHTML="<p>Stored data could not be read. Do not overwrite it.</p>";
-  throw Error("Unable to load stored data");
-}
 let userId = null;
 let page = "Dashboard";
 let calendarMonth = thisMonth();
@@ -275,14 +209,6 @@ function audit(action,entity) {
     id:uuid(), at:new Date().toISOString(), actor:user()?.email || "system",
     action, entity
   });
-}
-function save() {
-  try {
-    localStorage.setItem(KEY,JSON.stringify(db));
-  } catch {
-    alert("SAVE FAILED. This browser could not store the data. Do not close this page.");
-    throw Error("Local save failed");
-  }
 }
 function commit(action,entity) {
   audit(action,entity);
@@ -1308,16 +1234,16 @@ window.addEventListener("beforeunload",event=>{
   }
 });
 
-// Bootstrap app after Firestore loads
-loadDb()
-  .then(() => {
-// only render after Firestore has loaded
+// Bootstrap once after the shared Firestore document has loaded.
 loadDb()
   .then(() => {
     accountOptions();
     render();
   })
-  .catch(e => alert("Failed to load data: " + e.message));
+  .catch(e => {
+    console.error("Failed to load tracker data:", e);
+    document.body.innerHTML = "<main><h2>Unable to load tracker data</h2><p>Check the Firebase connection and Firestore access rules. Existing data has not been overwritten.</p></main>";
+  });
 </script>
 </body>
 </html>
