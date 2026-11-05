@@ -187,8 +187,10 @@ async function loadDb() {
   const snap = await docRef.get();
   if (snap.exists) {
     db = snap.data();
+    db._revision = Number(db._revision || 0);
   } else {
     db = {
+      _revision:0,
       users:[{ id:"admin", name:"Administrator", email:"admin@example.test", mobile:"", role:"admin"}],
       plans:[], clients:[], invoices:[], payments:[], reversals:[],
       expenses:[], labels:["Fuel","Cash","Rent","ISP Payment","Others"],
@@ -198,10 +200,25 @@ async function loadDb() {
   }
 }
 
-// save into Firestore instead of localStorage
+// Optimistic revision check prevents one browser tab silently overwriting
+// a newer saved version from another tab/device.
 async function save() {
   try {
-    await docRef.set(db);
+    const nextRevision = await dbCloud.runTransaction(async transaction => {
+      const snap = await transaction.get(docRef);
+      const currentRevision = snap.exists ? Number(snap.data()._revision || 0) : 0;
+      if (currentRevision !== Number(db._revision || 0)) {
+        throw Error("The database changed in another session. Reload the tracker before saving again.");
+      }
+      const revision = currentRevision + 1;
+      transaction.set(docRef, {
+        ...db,
+        _revision:revision,
+        _updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      });
+      return revision;
+    });
+    db._revision = nextRevision;
   } catch(e) {
     console.error("Save failed:",e);
     throw e;
@@ -286,7 +303,7 @@ function ensureBills() {
       changed=true;
     }
   }
-  if (changed) save();
+  if (changed) save().catch(error=>notify("Billing update was not saved: "+error.message));
 }
 function allocation(clientId) {
   let credit=paymentNet(clientId);
@@ -378,7 +395,6 @@ function render() {
     };
     return;
   }
-  $("shiftButton")?.setAttribute("hidden","");
   ensureBills();
   const pages=["Dashboard","Clients","Payments","Expenses","Calendar","Cash","Reminders"];
   if (admin()) pages.push("Plans","Reports");
