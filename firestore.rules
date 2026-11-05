@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Temporary production-safe owner-only access for the existing single-document
+    // schema. Do not widen this rule for collectors: the app currently stores all
+    // business records and roles in one document, so fine-grained staff access
+    // cannot be enforced safely at this path.
+    match /prototypes/isp-tracker {
+      allow read, write: if request.auth != null
+        && request.auth.token.email == "sagarinojoyrey@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+
+    // Deny every other document until a collection-based schema is deployed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
