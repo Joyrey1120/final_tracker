@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ISP Payment Tracker — Prototype</title>
+<title>Olango Fiber Network — Payment Tracker</title>
 <style>
 :root {
   --blue:#2563eb; --bg:#f3f6fb; --ink:#172033;
@@ -105,16 +105,14 @@ label input,label select,label textarea { width:100%; margin-top:5px }
     <small>Philippine pesos · Philippine billing dates</small>
   </div>
   <div class="toolbar" style="margin:0">
-    <select id="account" aria-label="Demo account"></select>
-    <button id="shiftButton" onclick="toggleShift()">Start shift</button>
-    <button onclick="logout()">Log out</button>
+    <span id="signedInAs" aria-live="polite"></span>
+    <button id="logoutButton" onclick="logout()" hidden>Log out</button>
   </div>
 </header>
 
-<div class="banner">
-  <strong>LOCAL TEST PROTOTYPE:</strong>
-  No secure login, cloud sync, or automatic emails.
-  Use sample data only. Account switching is provided for testing.
+<div class="banner" id="securityBanner">
+  <strong>SECURE OWNER ACCESS:</strong>
+  Sign in with the authorized administrator account. Staff access remains disabled until individual authenticated staff accounts and role-specific database permissions are deployed.
 </div>
 
 <nav id="nav"></nav>
@@ -123,6 +121,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 <div id="notice" hidden></div>
   <!-- Firebase is loaded once and initialized once. -->
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
   <script>
     const firebaseConfig = {
@@ -135,8 +134,10 @@ label input,label select,label textarea { width:100%; margin-top:5px }
       measurementId: "G-DV3H7ESV67"
     };
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
     const dbCloud = firebase.firestore();
     const docRef = dbCloud.collection("prototypes").doc("isp-tracker");
+    const ADMIN_EMAIL = "sagarinojoyrey@gmail.com";
   </script>
   <script>
 "use strict";
@@ -207,16 +208,17 @@ async function save() {
   }
 }
 let userId = null;
+let signedInUser = null;
 let page = "Dashboard";
 let calendarMonth = thisMonth();
 let selectedDay = today();
 let clientQuery = "";
 
-const user = () => db.users.find(u=>u.id===userId);
-const admin = () => user()?.role==="admin";
+const user = () => db?.users?.find(u=>u.id===userId);
+const admin = () => !!signedInUser && signedInUser.email===ADMIN_EMAIL && user()?.role==="admin";
 
 function requireUser() {
-  if (!user()) throw Error("Select a demo account first.");
+  if (!signedInUser || !user()) throw Error("Please sign in with the authorized administrator account.");
 }
 function requireAdmin() {
   requireUser();
@@ -234,23 +236,17 @@ function audit(action,entity) {
     action, entity
   });
 }
-function commit(action,entity) {
+async function commit(action,entity) {
   audit(action,entity);
-  save();
-  $("modal").close();
-  render();
+  try {
+    await save();
+    if ($("modal").open) $("modal").close();
+    notify("Saved successfully.");
+    render();
+  } catch(error) {
+    notify("Save failed. Do not repeat the transaction until the data is checked: "+error.message);
+  }
 }
-function accountOptions() {
-  $("account").innerHTML='<option value="">Select demo account</option>'+
-    db.users.map(u=>`<option value="${u.id}" ${u.id===userId?"selected":""}>
-      ${esc(u.name)} — ${esc(u.role)}
-    </option>`).join("");
-}
-$("account").onchange=()=>{
-  userId=$("account").value || null;
-  page="Dashboard";
-  render();
-};
 
 function activeShift(id=userId) {
   return db.shifts.find(s=>s.userId===id && !s.endedAt);
@@ -350,16 +346,37 @@ function userName(id) {
   return db.users.find(u=>u.id===id)?.name || "Unknown user";
 }
 function render() {
-  accountOptions();
-  $("shiftButton").hidden=!user() || admin();
-  $("shiftButton").textContent=activeShift()?"End shift":"Start shift";
-  if (!user()) {
+  $("logoutButton").hidden=!signedInUser;
+  $("signedInAs").textContent=signedInUser ? signedInUser.email : "";
+  if (!signedInUser || !admin() || !user()) {
     $("nav").innerHTML="";
-    $("main").innerHTML=`<div class="card"><h2>Welcome</h2>
-      <p>Select Administrator to configure the prototype.</p>
-      <p>There are no real passwords in this test version.</p></div>`;
+    $("main").innerHTML=`<div class="card"><h2>Administrator sign in</h2>
+      <p>Use the authorized owner email address to access the tracker.</p>
+      <form id="loginForm">
+        <label>Email address<input name="email" type="email" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <div class="toolbar"><button class="primary" type="submit">Sign in</button>
+        <button type="button" id="resetPassword">Send password reset</button></div>
+      </form>
+      <p class="muted">Only the authorized administrator can sign in in this release. Collector access is intentionally unavailable until individual staff permissions are implemented.</p>
+      <p id="loginError" role="alert"></p></div>`;
+    $("loginForm").onsubmit=async event=>{
+      event.preventDefault();
+      const form=new FormData(event.target);
+      const email=String(form.get("email")).trim().toLowerCase();
+      if(email!==ADMIN_EMAIL){$("loginError").textContent="This account is not authorized.";return;}
+      try { await auth.signInWithEmailAndPassword(email,String(form.get("password"))); }
+      catch(error){$("loginError").textContent="Sign in failed: "+error.message;}
+    };
+    $("resetPassword").onclick=async()=>{
+      const email=$("loginForm").elements.email.value.trim().toLowerCase();
+      if(email!==ADMIN_EMAIL){$("loginError").textContent="Enter the authorized administrator email first.";return;}
+      try { await auth.sendPasswordResetEmail(email); $("loginError").textContent="Password reset email sent."; }
+      catch(error){$("loginError").textContent="Could not send reset email: "+error.message;}
+    };
     return;
   }
+  $("shiftButton")?.setAttribute("hidden","");
   ensureBills();
   const pages=["Dashboard","Clients","Payments","Expenses","Calendar","Cash","Reminders"];
   if (admin()) pages.push("Plans","Staff","Reports");
@@ -1018,14 +1035,9 @@ function toggleShift() {
     commit("Shift started",created.id);
   }
 }
-function logout() {
-  if (user() && !admin()) {
-    if (!canEndShift()) return;
-    const s=activeShift();
-    if (s) { s.endedAt=new Date().toISOString(); audit("Shift ended on logout",s.id); save(); }
-  }
-  userId=null;
-  render();
+async function logout() {
+  try { await auth.signOut(); }
+  catch(error) { notify("Could not sign out: "+error.message); }
 }
 
 function remindersView() {
@@ -1291,16 +1303,33 @@ window.addEventListener("beforeunload",event=>{
   }
 });
 
-// Bootstrap once after the shared Firestore document has loaded.
-loadDb()
-  .then(() => {
-    accountOptions();
+// Authentication is checked before any business data is read.
+auth.onAuthStateChanged(async authUser=>{
+  signedInUser=authUser;
+  userId=null;
+  if (!authUser) { render(); return; }
+  if ((authUser.email||"").toLowerCase()!==ADMIN_EMAIL) {
+    await auth.signOut();
     render();
-  })
-  .catch(e => {
-    console.error("Failed to load tracker data:", e);
-    document.body.innerHTML = "<main><h2>Unable to load tracker data</h2><p>Check the Firebase connection and Firestore access rules. Existing data has not been overwritten.</p></main>";
-  });
+    return;
+  }
+  try {
+    await loadDb();
+    if (!db.users) db.users=[];
+    let owner=db.users.find(u=>u.role==="admin" && (u.email||"").toLowerCase()===ADMIN_EMAIL);
+    if (!owner) {
+      owner=db.users.find(u=>u.role==="admin");
+      if (owner) { owner.email=ADMIN_EMAIL; owner.name=owner.name||"Administrator"; }
+      else { owner={id:"admin",name:"Administrator",email:ADMIN_EMAIL,mobile:"",role:"admin"}; db.users.push(owner); }
+      await save();
+    }
+    userId=owner.id;
+    render();
+  } catch(e) {
+    console.error("Failed to load tracker data:",e);
+    $("main").innerHTML="<div class='card'><h2>Unable to load tracker data</h2><p>Check Firebase Authentication and Firestore security rules. Existing data has not been overwritten.</p><p>"+esc(e.message)+"</p></div>";
+  }
+});
 </script>
 </body>
 </html>
