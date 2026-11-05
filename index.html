@@ -1133,33 +1133,60 @@ async function importCSV(input) {
     const file=input.files[0];
     if (!file) return;
     const rows=parseCSV(await file.text());
-    const headers=rows.shift()?.map(h=>h.trim().toLowerCase());
-    if (!headers?.includes("name")) throw Error("CSV needs a name column.");
+    const headers=rows.shift()?.map(h=>h.trim().toLowerCase()
+      .replace(/[ .-]+/g,"_"));
+    const aliases={
+      name:["name","client","client_name","customer","customer_name"],
+      address:["address","location","barangay"],
+      phone:["phone","contact","contact_no","contact_number","mobile"],
+      account_number:["account_number","account","account_no","client_id"],
+      internet_plan:["internet_plan","plan","package"],
+      monthly_fee:["monthly_fee","monthly_due","monthly_amount","plan_fee"],
+      due_day:["due_day","billing_day","day_due"],
+      due_date:["due_date","payment_due_date"],
+      opening_balance:["opening_balance","due_amount","balance","outstanding_balance"],
+      billing_start_month:["billing_start_month","start_month","billing_month"]
+    };
+    const columns={};
+    for (const [key,names] of Object.entries(aliases))
+      columns[key]=headers?.findIndex(h=>names.includes(h)) ?? -1;
+    if (columns.name<0) throw Error("CSV needs a Name or Client column.");
+    const get=(row,key)=>columns[key]>=0?(row[columns[key]] || "").trim():"";
     const known=new Set(db.clients.map(c=>c.account).filter(Boolean));
+    const knownNames=new Set(db.clients.map(c=>c.name.trim().toLowerCase()));
     const staged=[];
     rows.forEach((row,index)=>{
       try {
-        const get=key=>(row[headers.indexOf(key)] || "").trim();
-        const name=get("name");
+        const name=get(row,"name");
         if (!name) throw Error("Name is required.");
-        const account=get("account_number");
+        const account=get(row,"account_number");
         if (account && known.has(account)) throw Error("Duplicate account number.");
-        const due=get("due_day")?Number(get("due_day")):null;
+        if (!account && knownNames.has(name.toLowerCase()))
+          throw Error("A client with this name already exists; add an account number to distinguish them.");
+        let dueText=get(row,"due_day");
+        const dueDateText=get(row,"due_date");
+        if (!dueText && dueDateText) {
+          const parsed=new Date(dueDateText);
+          if (!Number.isNaN(parsed.getTime())) dueText=String(parsed.getDate());
+          else if (/^\d{1,2}$/.test(dueDateText)) dueText=dueDateText;
+        }
+        const due=dueText?Number(dueText):null;
         if (due!==null && (!Number.isInteger(due)||due<1||due>31))
           throw Error("Due day must be 1–31.");
-        const start=get("billing_start_month");
+        const start=get(row,"billing_start_month");
         if (start && (!/^\d{4}-(0[1-9]|1[0-2])$/.test(start)||start<"2000-01"))
           throw Error("Invalid billing start month.");
-        const fee=cents(get("monthly_fee"),true);
-        const opening=cents(get("opening_balance") || "0");
+        const fee=cents(get(row,"monthly_fee"),true);
+        const opening=cents(get(row,"opening_balance") || "0");
         staged.push({
-          id:uuid(),name,account,address:get("address"),phone:get("phone"),
+          id:uuid(),name,account,address:get(row,"address"),phone:get(row,"phone"),
           start,opening,openingDate:start?`${start}-01`:today(),
           schedules:[{
-            from:start || thisMonth(),plan:get("internet_plan"),fee,due
+            from:start || thisMonth(),plan:get(row,"internet_plan"),fee,due
           }]
         });
         if (account) known.add(account);
+        knownNames.add(name.toLowerCase());
       } catch(error) {
         throw Error(`CSV row ${index+2}: ${error.message}`);
       }
@@ -1204,6 +1231,7 @@ function reportsView() {
     <h3>Client import columns</h3>
     <p class="muted">Only name is required.</p>
     <pre style="overflow:auto">name,address,phone,account_number,internet_plan,monthly_fee,due_day,opening_balance,billing_start_month</pre>
+    <p class="muted">Also accepts your existing sheet headers: CLIENT, ADDRESS, CONTACT NO., DUE DATE, DUE AMOUNT. DUE AMOUNT is imported as the opening balance; confirm each client's monthly plan and fee after import.</p>
     <button onclick="downloadTemplate()">Download CSV template</button>
     </div>`;
 }
