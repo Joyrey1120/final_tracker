@@ -549,26 +549,26 @@ function render() {
   if (!signedInUser || !user()) {
     $("nav").innerHTML="";
     $("main").innerHTML=`<div class="card"><h2>Staff sign in</h2>
-      <p>Use an authorized administrator email address to access the tracker.</p>
+      <p>Use your Firebase email and password. Access is granted only to active, approved staff accounts.</p>
       <form id="loginForm">
         <label>Email address<input name="email" type="email" autocomplete="username" required></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
         <div class="toolbar"><button class="primary" type="submit">Sign in</button>
         <button type="button" id="resetPassword">Send password reset</button></div>
       </form>
-      <p class="muted">Only the owner and explicitly authorized administrator can sign in in this release. Collector access remains unavailable until individual staff permissions are implemented.</p>
+      <p class="muted">Sign in with an authorized administrator or staff account. An administrator must approve staff access first.</p>
       <p id="loginError" role="alert"></p></div>`;
     $("loginForm").onsubmit=async event=>{
       event.preventDefault();
       const form=new FormData(event.target);
       const email=String(form.get("email")).trim().toLowerCase();
-      if(!isAdminEmail(email)){$("loginError").textContent="This account is not authorized.";return;}
+      
       try { await auth.signInWithEmailAndPassword(email,String(form.get("password"))); }
       catch(error){$("loginError").textContent="Sign in failed: "+error.message;}
     };
     $("resetPassword").onclick=async()=>{
       const email=$("loginForm").elements.email.value.trim().toLowerCase();
-      if(!isAdminEmail(email)){$("loginError").textContent="Enter an authorized administrator email first.";return;}
+      
       try { await auth.sendPasswordResetEmail(email); $("loginError").textContent="Password reset email sent."; }
       catch(error){$("loginError").textContent="Could not send reset email: "+error.message;}
     };
