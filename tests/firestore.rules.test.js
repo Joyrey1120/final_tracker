@@ -206,8 +206,11 @@ test("approved second admin can enroll only their own verified UID profile",asyn
   await assertSucceeds(setDoc(doc(db,"staffPrivate","secondAdminUid"),{
     email:secondAdminEmail,mobile:""
   }));
-  await assertFails(setDoc(doc(db,"staffPublic","otherUid"),{
-    id:"otherUid",name:"Administrator",role:"admin",active:true,legacyId:""
+  const outsider=env.authenticatedContext("outsiderUid",{
+    email:"outsider@example.test",email_verified:true
+  }).firestore();
+  await assertFails(setDoc(doc(outsider,"staffPublic","outsiderUid"),{
+    id:"outsiderUid",name:"Administrator",role:"admin",active:true,legacyId:""
   }));
   const unverified=env.authenticatedContext("unverifiedAdminUid",{
     email:secondAdminEmail,email_verified:false
