@@ -58,8 +58,9 @@ The Firestore rules on this branch temporarily preserve owner access to the lega
 ## Verification status and limitations
 
 - JavaScript syntax checks passed for the application inline scripts, migration script, and emulator test file.
-- The emulator tests are authored but **have not run**. Dependency installation was unavailable in this environment, so the rules have not been compiled by the emulator.
-- No Firebase Console configuration, production migration, rules deployment, hosting deployment, or live sign-in test has been performed.
+- The Firestore Emulator rules suite passed in GitHub Actions at the current development revision, including role access, collector payment/shift/handover restrictions, migration-legacy shift closure, and field validation.
+- A simulated interrupted 400-record migration resumed without rewriting already-copied rows and completed with the marker written last. The migration script has not been run against production data.
+- Firebase Console inspection confirmed Email/Password is enabled and both administrator Authentication accounts exist. Hosting is not initialized. No production data migration, rules deployment, Hosting deployment, or account-password sign-in test has been performed.
 - The current rules allow collectors to submit a handover for any positive amount; the app checks the available cash and an admin must confirm receipt. Strong server-side reconciliation of cash totals is still needed before treating handover totals as tamper-proof.
 - There is no server-side billing engine, automated SMS/email reminder service, or scheduled backup/restore test.
 - CSV import maps legacy `DUE AMOUNT` to opening balance. Confirm monthly plan and fees after import. Prefer ISO dates over ambiguous slash-formatted dates.
