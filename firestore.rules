@@ -14,6 +14,128 @@ service cloud.firestore {
         );
     }
 
+    // Role-scoped collections used by the staged data migration.
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function bootstrapAdmin() {
+      return signedIn() && (
+        request.auth.token.email == "sagarinojoyrey@gmail.com"
+        || request.auth.token.email == "dictomesagarino@gmail.com"
+      );
+    }
+    function publicProfile(uid) {
+      return /databases/$(database)/documents/staffPublic/$(uid);
+    }
+    function hasActiveProfile(uid) {
+      return exists(publicProfile(uid))
+        && get(publicProfile(uid)).data.active == true;
+    }
+    function isAdmin() {
+      return bootstrapAdmin()
+        || (signedIn() && hasActiveProfile(request.auth.uid)
+          && get(publicProfile(request.auth.uid)).data.role == "admin");
+    }
+    function isCollector() {
+      return signedIn() && hasActiveProfile(request.auth.uid)
+        && get(publicProfile(request.auth.uid)).data.role == "collector";
+    }
+    function canUseTracker() {
+      return isAdmin() || isCollector();
+    }
+    function activeShift(shiftId) {
+      return shiftId is string
+        && exists(/databases/$(database)/documents/shifts/$(shiftId))
+        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId == request.auth.uid
+        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.endedAt == null;
+    }
+
+    // staffPublic must not contain email or mobile fields.
+    match /staffPublic/{uid} {
+      allow get, list: if canUseTracker();
+      allow create, update, delete: if isAdmin();
+    }
+    match /staffPrivate/{uid} {
+      allow get: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+    match /staffInvites/{email} {
+      allow get: if isAdmin() || (signedIn() && request.auth.token.email == email);
+      allow list, create, update, delete: if isAdmin();
+    }
+    match /clients/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /invoices/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /plans/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /payments/{id} {
+      allow read: if canUseTracker();
+      allow create: if isAdmin()
+        || (isCollector()
+          && request.resource.data.recorderId == request.auth.uid
+          && request.resource.data.amount is int
+          && request.resource.data.amount > 0
+          && request.resource.data.method in ["Cash", "GCash"]
+          && activeShift(request.resource.data.shiftId)
+          && exists(/databases/$(database)/documents/clients/$(request.resource.data.clientId)));
+      allow update, delete: if false;
+    }
+    match /reversals/{id} {
+      allow read: if canUseTracker();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+    match /expenses/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /expenseSettings/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /handovers/{id} {
+      allow read: if isAdmin() || (isCollector()
+        && resource.data.collectorId == request.auth.uid);
+      allow create: if isCollector()
+        && request.resource.data.collectorId == request.auth.uid
+        && request.resource.data.status == "Pending"
+        && request.resource.data.amount is int
+        && request.resource.data.amount > 0
+        && activeShift(request.resource.data.shiftId);
+      allow update: if isAdmin()
+        && resource.data.status == "Pending"
+        && request.resource.data.status == "Confirmed"
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["status", "confirmedBy", "confirmedAt"]);
+      allow delete: if false;
+    }
+    match /shifts/{id} {
+      allow read: if isAdmin() || (isCollector()
+        && resource.data.userId == request.auth.uid);
+      allow create: if isCollector()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.endedAt == null;
+      allow update: if isCollector()
+        && resource.data.userId == request.auth.uid
+        && resource.data.endedAt == null
+        && request.resource.data.endedAt is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["endedAt"]);
+      allow delete: if false;
+    }
+    match /audit/{id} {
+      allow read: if isAdmin();
+      allow create: if canUseTracker()
+        && request.resource.data.actor == request.auth.token.email;
+      allow update, delete: if false;
+    }
+
     // Deny every other document until the collection-based migration is reviewed
     // and deployed as a coordinated application + rules release.
     match /{document=**} {
