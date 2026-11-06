@@ -137,7 +137,11 @@ label input,label select,label textarea { width:100%; margin-top:5px }
     const auth = firebase.auth();
     const dbCloud = firebase.firestore();
     const docRef = dbCloud.collection("prototypes").doc("isp-tracker");
-    const ADMIN_EMAIL = "sagarinojoyrey@gmail.com";
+    const OWNER_EMAIL = "sagarinojoyrey@gmail.com";
+    const ADMIN_EMAILS = new Set([
+      OWNER_EMAIL,
+      "dictomesagarino@gmail.com"
+    ]);
   </script>
   <script>
 "use strict";
@@ -268,7 +272,8 @@ let selectedDay = today();
 let clientQuery = "";
 
 const user = () => db?.users?.find(u=>u.id===userId);
-const admin = () => !!signedInUser && (signedInUser.email||"").toLowerCase()===ADMIN_EMAIL && user()?.role==="admin";
+const isAdminEmail = email => ADMIN_EMAILS.has((email||"").toLowerCase());
+const admin = () => !!signedInUser && isAdminEmail(signedInUser.email) && user()?.role==="admin";
 
 function requireUser() {
   if (!signedInUser || !user()) throw Error("Please sign in with the authorized administrator account.");
@@ -419,13 +424,13 @@ function render() {
       event.preventDefault();
       const form=new FormData(event.target);
       const email=String(form.get("email")).trim().toLowerCase();
-      if(email!==ADMIN_EMAIL){$("loginError").textContent="This account is not authorized.";return;}
+      if(!isAdminEmail(email)){$("loginError").textContent="This account is not authorized.";return;}
       try { await auth.signInWithEmailAndPassword(email,String(form.get("password"))); }
       catch(error){$("loginError").textContent="Sign in failed: "+error.message;}
     };
     $("resetPassword").onclick=async()=>{
       const email=$("loginForm").elements.email.value.trim().toLowerCase();
-      if(email!==ADMIN_EMAIL){$("loginError").textContent="Enter the authorized administrator email first.";return;}
+      if(!isAdminEmail(email)){$("loginError").textContent="Enter an authorized administrator email first.";return;}
       try { await auth.sendPasswordResetEmail(email); $("loginError").textContent="Password reset email sent."; }
       catch(error){$("loginError").textContent="Could not send reset email: "+error.message;}
     };
@@ -1405,7 +1410,7 @@ auth.onAuthStateChanged(async authUser=>{
   signedInUser=authUser;
   userId=null;
   if (!authUser) { render(); return; }
-  if ((authUser.email||"").toLowerCase()!==ADMIN_EMAIL) {
+  if (!isAdminEmail(authUser.email)) {
     await auth.signOut();
     render();
     return;
@@ -1434,14 +1439,22 @@ auth.onAuthStateChanged(async authUser=>{
   try {
     await loadDb();
     if (!db.users) db.users=[];
-    let owner=db.users.find(u=>u.role==="admin" && (u.email||"").toLowerCase()===ADMIN_EMAIL);
-    if (!owner) {
-      owner=db.users.find(u=>u.role==="admin");
-      if (owner) { owner.email=ADMIN_EMAIL; owner.name=owner.name||"Administrator"; }
-      else { owner={id:"admin",name:"Administrator",email:ADMIN_EMAIL,mobile:"",role:"admin"}; db.users.push(owner); }
+    const accountEmail=(authUser.email||"").toLowerCase();
+    let account=db.users.find(u=>(u.email||"").toLowerCase()===accountEmail);
+    if (!account) {
+      account={
+        id:authUser.uid,
+        name:accountEmail===OWNER_EMAIL?"Administrator":accountEmail.split("@")[0],
+        email:accountEmail,mobile:"",role:"admin"
+      };
+      db.users.push(account);
+      await save();
+    } else if (isAdminEmail(accountEmail) && account.role!=="admin") {
+      // This specific email was authorized by the repository owner as an admin.
+      account.role="admin";
       await save();
     }
-    userId=owner.id;
+    userId=account.id;
     render();
   } catch(e) {
     console.error("Failed to load tracker data:",e);
