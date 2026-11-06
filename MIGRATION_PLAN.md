@@ -61,7 +61,7 @@ Before any production rules deployment, cover at least:
 - Calendar boundaries accept January 2026 and December 2050 and reject months outside that range.
 - Dry-run migration is repeatable and preserves exact source counts and values.
 
-The branch includes Firestore Emulator test configuration and the suite at `tests/firestore.rules.test.js`; the suite passed in GitHub Actions at the current development revision. A simulated interrupted migration also verified resume behavior after the first 400-record batch. The live Console was inspected read-only: Email/Password is enabled and both administrator accounts exist; Firebase Hosting is not initialized. No production data migration or rules/Hosting deployment has occurred.
+The branch includes Firestore Emulator tests plus automated migration tests in `tests/`; the combined suite passed in GitHub Actions at the current development revision. The migration tests cover dry-run behavior and resume after an interrupted 400-record batch. The live Console was inspected read-only: Email/Password is enabled and both administrator accounts exist; Firebase Hosting is not initialized. No production data migration or rules/Hosting deployment has occurred.
 
 ## Firebase Console actions needed for the interim admin sign-in
 
