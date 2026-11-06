@@ -669,12 +669,31 @@ function dashboard() {
       <td>${money(cashHeld(u.id))}</td></tr>`))}
     </div>`;
 }
+function normalizeClientSearch(value) {
+  return String(value || "").normalize("NFKD").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+function clientAccountPrefix(address) {
+  return normalizeClientSearch(address).replace(/[^A-Z]/g, "").slice(0,3);
+}
+function nextClientAccount(address) {
+  const prefix=clientAccountPrefix(address);
+  if (prefix.length!==3) return "";
+  const used=new Set(db.clients.map(c=>{
+    const match=String(c.account || "").toUpperCase().match(new RegExp("^"+prefix+"-(\\d{3})$"));
+    return match?Number(match[1]):null;
+  }).filter(Number.isInteger));
+  for (let number=1; number<=999; number++) if (!used.has(number)) return prefix+"-"+String(number).padStart(3,"0");
+  return "";
+}
 function clientsView() {
-  const list=db.clients.filter(c=>
-    [c.name,c.account,c.phone,c.address].join(" ").toLowerCase()
-      .includes(clientQuery.toLowerCase()));
+  const terms=normalizeClientSearch(clientQuery).split(/\s+/).filter(Boolean);
+  const list=db.clients.filter(c=>{
+    const due=c.schedules.at(-1)?.due;
+    const searchable=normalizeClientSearch([c.name,c.account,c.phone,c.address,due,due==null?"":"due "+due].join(" "));
+    return terms.every(term=>searchable.includes(term));
+  });
   return `<h2>Clients</h2><div class="toolbar">
-    <input placeholder="Search name, account, phone, address"
+    <input type="search" aria-label="Search clients by name, account, phone, address, or due day" placeholder="Search name, account, phone, address, or due day"
       value="${esc(clientQuery)}" oninput="searchClients(this.value)">
     ${admin()?`<button class="primary" onclick="clientForm()">Add client</button>
       <button onclick="document.getElementById('csvFile').click()">Import CSV</button>
@@ -683,8 +702,13 @@ function clientsView() {
       ["Name / Account","Contact","Plan / Monthly due","Due day","Balance","Actions"],
       list.map(c=>{
         const s=c.schedules.at(-1);
+        const addressKey=normalizeClientSearch(c.address);
+        const sameAddress=addressKey?db.clients.filter(other=>normalizeClientSearch(other.address)===addressKey).length:0;
+        const sameDue=s?.due==null?0:db.clients.filter(other=>other.schedules.at(-1)?.due===s.due).length;
+        const sameAddressAndDue=!addressKey||s?.due==null?0:db.clients.filter(other=>normalizeClientSearch(other.address)===addressKey&&other.schedules.at(-1)?.due===s.due).length;
+        const shared=[sameAddressAndDue>1?`<span class="badge">Same address and due day: ${sameAddressAndDue}</span>`:"",sameAddress>1?`<span class="badge">Same address: ${sameAddress}</span>`:"",sameDue>1?`<span class="badge">Same due day: ${sameDue}</span>`:""].filter(Boolean).join(" ");
         return `<tr><td>${esc(c.name)}<br><small>${esc(c.account)}</small></td>
-          <td>${esc(c.phone)}<br><small>${esc(c.address)}</small></td>
+          <td>${esc(c.phone)}<br><small>${esc(c.address)}</small>${shared?`<br>${shared}`:""}</td>
           <td>${esc(s?.plan || "Not set")}<br>
             ${s?.fee!==null && s?.fee!==undefined?money(s.fee):"Not set"}
             ${s?.from>thisMonth()?`<br><small>Effective ${esc(s.from)}</small>`:""}
@@ -746,15 +770,20 @@ function openForm(title,content,handler) {
   };
   $("modal").showModal();
 }
+function suggestClientAccount(address) {
+  const input=$("clientAccount");
+  if (!input || input.dataset.manual==="true") return;
+  input.value=nextClientAccount(address);
+}
 function clientForm(id="") {
   requireAdmin();
   const c=db.clients.find(c=>c.id===id);
   const s=c?.schedules.at(-1);
   openForm(c?"Edit client":"Add client",`
     ${field("Name *","name",c?.name || "","text","required")}
-    ${field("Address","address",c?.address || "")}
+    <label>Address<input name="address" value="${esc(c?.address || "")}" oninput="suggestClientAccount(this.value)"></label>
     ${field("Phone number","phone",c?.phone || "","tel")}
-    ${field("Account number","account",c?.account || "")}
+    <label>Account number<input id="clientAccount" name="account" value="${esc(c?.account || nextClientAccount(c?.address || ""))}" oninput="this.dataset.manual=1" ${c?.account?"data-manual=true":""}></label>
     <label>Choose a saved plan
       <select onchange="fillPlan(this.value)">
         <option value="">Custom / leave blank</option>
