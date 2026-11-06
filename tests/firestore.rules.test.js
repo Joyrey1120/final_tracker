@@ -85,6 +85,25 @@ test("owner and enrolled second admin can access legacy data; collectors cannot"
   await assertFails(getDoc(doc(unauth(),"prototypes","isp-tracker")));
 });
 
+test("legacy data remains readable but cannot be changed after collection cutover",async()=>{
+  const owner=env.authenticatedContext("ownerUid",{
+    email:ownerEmail,email_verified:true
+  }).firestore();
+  const secondAdmin=admin();
+  await env.withSecurityRulesDisabled(async context=>{
+    await setDoc(doc(context.firestore(),"migrationMeta","collection-v1"),{
+      source:"prototypes/isp-tracker",sourcePreserved:true
+    });
+  });
+  const source=doc(owner,"prototypes","isp-tracker");
+  await assertSucceeds(getDoc(source));
+  await assertSucceeds(getDoc(doc(secondAdmin,"prototypes","isp-tracker")));
+  await assertFails(setDoc(source,{clients:[{id:"changed"}]}));
+  await assertFails(setDoc(doc(secondAdmin,"prototypes","isp-tracker"),{
+    clients:[{id:"changed"}]
+  }));
+});
+
 test("collectors can read tracker data but cannot modify clients, invoices, or expenses",async()=>{
   const db=collector();
   await assertSucceeds(getDoc(doc(db,"clients","client1")));
