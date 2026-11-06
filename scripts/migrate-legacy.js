@@ -75,7 +75,8 @@ async function main() {
         role: u.role === "admin" ? "admin" : "collector",
         active: true,
         name: String(u.name || ""),
-        mobile: String(u.mobile || "")
+        mobile: String(u.mobile || ""),
+        legacyId: String(u.id || "")
       }
     }));
   counts.staffInvites = invitations.length;
