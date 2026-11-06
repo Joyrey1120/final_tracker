@@ -7,7 +7,8 @@
  * Requires firebase-admin and Application Default Credentials for the existing
  * project. The original document is never changed or deleted.
  */
-const admin = require("firebase-admin");
+const { initializeApp, applicationDefault } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 
 const PROJECT_ID = "final-tracker-743c3";
 const ADMIN_EMAILS = new Set(["sagarinojoyrey@gmail.com", "dictomesagarino@gmail.com"]);
@@ -49,11 +50,11 @@ function stableId(row, index, collection) {
 
 async function main() {
   const apply = process.argv.includes("--apply");
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
+  initializeApp({
+    credential: applicationDefault(),
     projectId: PROJECT_ID
   });
-  const firestore = admin.firestore();
+  const firestore = getFirestore();
   const legacyRef = firestore.collection(SOURCE[0]).doc(SOURCE[1]);
   const legacySnap = await legacyRef.get();
   if (!legacySnap.exists) throw new Error("Legacy source document was not found.");
@@ -166,7 +167,7 @@ async function main() {
     source: SOURCE.join("/"),
     counts,
     destinationRecords: payloads.length,
-    migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+    migratedAt: FieldValue.serverTimestamp(),
     sourcePreserved: true
   });
   console.log("Migration writes completed. Verify counts and sample references before cutover.");
