@@ -120,10 +120,18 @@ service cloud.firestore {
       allow read: if canUseTracker();
       allow create: if isAdmin()
         || (isCollector()
+          && request.resource.data.keys().hasOnly([
+            "id", "receipt", "clientId", "amount", "method", "reference", "date",
+            "at", "recorderId", "recorderEmail", "shiftId"
+          ])
+          && request.resource.data.id == id
           && request.resource.data.recorderId == request.auth.uid
+          && request.resource.data.recorderEmail == request.auth.token.email
           && request.resource.data.amount is int
           && request.resource.data.amount > 0
           && request.resource.data.method in ["Cash", "GCash"]
+          && request.resource.data.date is string
+          && request.resource.data.date.matches("^\\d{4}-\\d{2}-\\d{2}$")
           && activeShift(request.resource.data.shiftId)
           && exists(/databases/$(database)/documents/clients/$(request.resource.data.clientId))
           && get(/databases/$(database)/documents/clients/$(request.resource.data.clientId)).data.active != false);
@@ -146,10 +154,16 @@ service cloud.firestore {
       allow read: if isAdmin() || (isCollector()
         && resource.data.collectorId in [request.auth.uid, legacyStaffId()]);
       allow create: if isCollector()
+        && request.resource.data.keys().hasOnly([
+          "id", "collectorId", "amount", "note", "date", "at", "status", "shiftId"
+        ])
+        && request.resource.data.id == id
         && request.resource.data.collectorId == request.auth.uid
         && request.resource.data.status == "Pending"
         && request.resource.data.amount is int
         && request.resource.data.amount > 0
+        && request.resource.data.date is string
+        && request.resource.data.date.matches("^\\d{4}-\\d{2}-\\d{2}$")
         && activeShift(request.resource.data.shiftId);
       allow update: if isAdmin()
         && resource.data.status == "Pending"
@@ -178,6 +192,8 @@ service cloud.firestore {
     match /audit/{id} {
       allow read: if isAdmin();
       allow create: if canUseTracker()
+        && request.resource.data.keys().hasOnly(["id", "at", "actor", "action", "entity"])
+        && request.resource.data.id == id
         && request.resource.data.actor == request.auth.token.email;
       allow update, delete: if false;
     }
