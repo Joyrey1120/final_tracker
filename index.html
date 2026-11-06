@@ -1603,6 +1603,10 @@ auth.onAuthStateChanged(async authUser=>{
       publicProfile={id:uid,name,role,active:true,legacyId:invite?.legacyId||""};
     }
     if (publicProfile.active===false) throw Error("This staff account is inactive. Ask an administrator for access.");
+    const privateRef=dbCloud.collection("staffPrivate").doc(uid);
+    const privateSnap=await privateRef.get();
+    if (!privateSnap.exists)
+      await privateRef.set({email,mobile:invite?.mobile||""});
     if (!publicProfile.legacyId && invite?.legacyId) {
       publicProfile.legacyId=invite.legacyId;
       if (isAdminEmail(email)) await publicRef.update({legacyId:invite.legacyId});
