@@ -724,11 +724,20 @@ function expensesView() {
     ${admin()?`<button class="primary" onclick="expenseForm()">Add expense</button>
       <button onclick="addLabel()">Add expense label</button>`:""}
     </div><div class="card">${table(
-      ["Date","Label","Description","Amount","Recorded by"],
+      ["Date","Label","Description","Amount","Recorded by",...(admin()?["Action"]:[])],
       [...db.expenses].reverse().map(e=>`<tr>
         <td>${esc(e.date)}</td><td>${esc(e.label)}</td>
         <td>${esc(e.description)}</td><td>${money(e.amount)}</td>
-        <td>${esc(e.recorderEmail)}</td></tr>`))}</div>`;
+        <td>${esc(e.recorderEmail)}</td>
+        ${admin()?`<td><button class="danger" onclick="deleteExpense('${e.id}')">Delete</button></td>`:""}</tr>`))}</div>`;
+}
+function deleteExpense(id) {
+  requireAdmin();
+  const expense=db.expenses.find(e=>e.id===id);
+  if(!expense) return;
+  if(!confirm("Permanently delete this expense of "+money(expense.amount)+" dated "+expense.date+"?")) return;
+  db.expenses=db.expenses.filter(e=>e.id!==id);
+  commit("Expense permanently deleted",id);
 }
 function addLabel() {
   requireAdmin();
