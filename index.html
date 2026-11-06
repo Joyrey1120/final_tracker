@@ -1330,13 +1330,27 @@ function planForm(id="") {
   });
 }
 function staffView() {
-  return `<h2>Staff access roster</h2><p class="muted">Pre-approved staff profiles only. Adding a profile does not create a Firebase login or grant access. Individual role-secured staff accounts are not enabled yet.</p><div class="toolbar">
-    <button class="primary" onclick="staffForm()">Add staff account</button></div>
-    <div class="card">${table(["Name","Email","Mobile","Role"],
-      db.users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
-        <td>${esc(u.mobile)}</td><td>${esc(u.role)}</td></tr>`))}
-    <p class="muted">These are demo profiles, not authenticated accounts.
-      Email addresses are saved for the future reminder integration.</p></div>`;
+  const rows=db.users.map(u=>{
+    const access=u.email?.toLowerCase()===OWNER_EMAIL
+      ? "Owner"
+      : '<button onclick="toggleStaffActive(\''+esc(u.id)+'\')">'+(u.active===false?"Enable":"Disable")+'</button>';
+    const status=u.active===false?"Disabled":u.preapproved?"Awaiting sign-in":"Active";
+    return "<tr><td>"+esc(u.name)+"</td><td>"+esc(u.email)+"</td><td>"+
+      esc(u.mobile)+"</td><td>"+esc(u.role)+"</td><td>"+status+
+      "</td><td>"+access+"</td></tr>";
+  });
+  return "<h2>Staff access</h2><p class='muted'>Pre-approve a Firebase email account and choose its role. The person must create their own Firebase password and verify their email before access is granted.</p><div class='toolbar'><button class='primary' onclick='staffForm()'>Approve staff email</button></div><div class='card'>"+
+    table(["Name","Email","Mobile","Role","Status","Access"],rows)+
+    "<p class='muted'>Pre-approval alone does not create an Authentication account. New staff accounts enroll against their UID on first verified sign-in.</p></div>";
+}
+function toggleStaffActive(id) {
+  requireAdmin();
+  const member=db.users.find(u=>u.id===id);
+  if (!member || member.email?.toLowerCase()===OWNER_EMAIL) return;
+  const disabling=member.active!==false;
+  if (!confirm((disabling?"Disable":"Enable")+" access for "+member.email+"?")) return;
+  member.active=!disabling;
+  commit(disabling?"Staff access disabled":"Staff access enabled",id);
 }
 function staffForm() {
   requireAdmin();
@@ -1605,6 +1619,10 @@ auth.onAuthStateChanged(async authUser=>{
       } else if (legacyAccount.role!=="admin") {
         legacyAccount.role="admin";
         await save();
+      }
+      if (legacyAccount.id!==uid && publicProfile.legacyId!==legacyAccount.id) {
+        publicProfile.legacyId=legacyAccount.id;
+        await publicRef.update({legacyId:legacyAccount.id});
       }
       userId=legacyAccount.id;
     } else if (!db.users.some(u=>u.id===uid)) {
