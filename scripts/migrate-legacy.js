@@ -88,6 +88,17 @@ async function main() {
 
   // Refuse to overwrite any pre-existing destination record. Identical records
   // are also rejected so an interrupted apply cannot be mistaken for a clean run.
+  const seen = new Set();
+  const duplicateIds = [];
+  for (const item of payloads) {
+    const key = item.collection + "/" + item.id;
+    if (seen.has(key)) duplicateIds.push(key);
+    seen.add(key);
+  }
+  if (duplicateIds.length) {
+    throw new Error("Duplicate source IDs found; no writes made: " + duplicateIds.slice(0, 20).join(", "));
+  }
+
   const conflicts = [];
   for (const item of payloads) {
     const existing = await firestore.collection(item.collection).doc(item.id).get();
