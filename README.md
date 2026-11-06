@@ -1,69 +1,65 @@
 # Olango Fiber Network — Payment Tracker
 
-## Deployment status
+## Status
 
-This branch is a **restricted owner-only release candidate**, not yet the full live multi-user release.
+This is an unmerged development release. It includes the current admin controls, a collection-based Firestore data layer, Firebase UID enrollment for approved staff, role-specific rules, a dry-run legacy-data migrator, and local Firestore rules tests.
 
-The app now requires Firebase Authentication and its Firestore rules restrict the existing shared data document to the verified owner account `sagarinojoyrey@gmail.com`. All other Firestore paths are denied. Demo account switching has been removed.
+The existing live document `prototypes/isp-tracker` remains the source of truth until the migration marker is written. The development app keeps the original admin-only mode before migration and uses separate records after migration. The original document is preserved by the migrator.
 
-**Collector/staff login is intentionally disabled.** The current application stores clients, invoices, payments, expenses, staff profiles, handovers, shifts, and audit entries together in one Firestore document (`prototypes/isp-tracker`). Giving collectors access to that document would let them potentially change data outside their job. Do not loosen the rules to make staff login work. A separate collection-based database and tested role-specific rules are required first.
+- Existing owner: `sagarinojoyrey@gmail.com`
+- Additional admin approved for this release: `dictomesagarino@gmail.com`
 
-## Before deployment — protect existing records
+The additional admin must first have a verified Email/Password account in Firebase Authentication. A Firebase Console password must be set or reset privately; passwords must never be committed or shared in chat.
 
-1. Keep the current live Firebase project and existing Firestore document intact.
-2. Export/download a backup of `prototypes/isp-tracker` from Firebase Console before changing rules or deploying.
-3. Confirm the backup can be opened and contains the expected client, invoice, payment, expense, handover, shift, and audit arrays.
-4. Do not import real customer data into a test Firebase project, and do not delete the original document during any future migration.
+**This branch is not deployed.** Do not merge or deploy it until the emulator suite passes and the migration has been backed up, reviewed, and approved.
 
-## Firebase setup
+## Collector access from the supplied demo
 
-The Firebase web configuration in `index.html` identifies the project; it is not an admin credential.
+Collectors can view Dashboard, Clients, Payments, Expenses, Calendar, Cash, and Reminders. They can search and view client records and histories, record payments during their active shift, start/end their shifts, and submit their own cash handovers. They cannot change clients or plans, add/delete expenses, reverse payments, confirm handovers, manage staff, or export admin reports. Cash and shift records are scoped to the signed-in collector, including their preserved legacy IDs.
 
-1. Open Firebase Console for project `final-tracker-743c3`.
-2. In **Authentication → Sign-in method**, enable **Email/Password**.
-3. In **Authentication → Users**, create the owner account `sagarinojoyrey@gmail.com` if it does not already exist. Set its password privately in Firebase Console; never put a password in this repository or send it in chat.
-4. Verify the owner's email address. The Firestore rules require `email_verified == true`.
-5. In **Authentication → Settings → Authorized domains**, ensure the GitHub Pages domain and any custom production domain are listed.
-6. Confirm the Firestore database exists and that the existing document `prototypes/isp-tracker` is present and backed up.
+Firestore rules protect these paths; hiding a button is not the authorization check. The shared legacy document remains inaccessible to collectors.
 
-## Deploy security rules before the website
+## Protect and migrate existing records
 
-Install/use Firebase CLI on a trusted computer, authenticate with an account that has Firebase project deployment permissions, then run from this repository:
+1. In the existing project `final-tracker-743c3`, export `prototypes/isp-tracker` and verify its record arrays and counts. Keep this source document intact.
+2. Stop tracker use while migration is running so no one writes to the source during the copy.
+3. Install the isolated migration dependency and run a dry run. From the repository root:
 
-```bash
-firebase use final-tracker-743c3
-firebase deploy --only firestore:rules
-```
+   ```powershell
+   npm --prefix scripts install
+   node scripts/migrate-legacy.js
+   ```
 
-The rules are deny-by-default. Only the verified owner email can read or write `prototypes/isp-tracker`. All other documents and all other users are denied.
+   The dry run reports the source and destination counts. It handles legacy array aliases, preserves record IDs, creates staff invitations, refuses conflicting destination records, and does not write.
+4. After a reviewed backup and approved cutover, run `node scripts/migrate-legacy.js --apply`. The script writes in resumable batches, writes the migration marker last, and never edits or deletes the original document. It requires Application Default Credentials with permission to write Firestore in the existing project.
+5. In `tests/`, install dependencies and run the Firestore Emulator suite:
 
-After deploying rules, test that:
-- The verified owner can sign in and load the tracker.
-- A signed-out browser cannot read the tracker.
-- A different authenticated account cannot read or write the tracker.
-- No collector account is given access to the shared document.
+   ```powershell
+   npm install
+   npm test
+   ```
 
-## Deploy the website
+   All rules tests must pass before production deployment.
+6. Deploy the reviewed rules first, then the website. Confirm owner, additional admin, and at least one collector login and exercise the forbidden direct requests listed in the tests.
 
-After Authentication and rules have been configured and tested:
+## Firebase Console actions
 
-```bash
-firebase deploy --only hosting
-```
+These actions have not been performed:
 
-The included `firebase.json` publishes the repository root. If using GitHub Pages instead, Firebase Hosting deployment is not required, but the deployed site domain must be in Firebase Authentication's authorized domains and HTTPS must be used.
+1. Select existing project `final-tracker-743c3`; do not create a Firebase project.
+2. Enable Email/Password sign-in if needed.
+3. Confirm the owner account remains active and verified.
+4. Create or confirm `dictomesagarino@gmail.com`, set/reset its password privately, and verify its email.
+5. Add the hosted domain under Authentication → Settings → Authorized domains.
+6. Export and inspect the original Firestore document before migration.
 
-## Current known limitations — do not treat as complete
+The Firestore rules on this branch temporarily preserve owner access to the legacy document and grant the additional admin access only while its UID profile is active and has the admin role. Collectors are denied access to that document. Collection rules support approved UID-bound invitations after the migration marker exists.
 
-- Owner-only access; no collector/staff login or role-based access yet.
-- Data remains in one shared Firestore document. This is not safe for concurrent multi-user editing and has a document-size ceiling.
-- No server-side billing, payment, reversal, or audit validation.
-- No automated customer SMS/email reminders.
-- No verified end-to-end browser tests against the real Firebase project.
-- No automated scheduled backup/restore test.
-- CSV import maps the legacy `DUE AMOUNT` field to opening balance; monthly plan and monthly fee still need to be confirmed for each imported client.
-- Slash-formatted dates are ambiguous across locales. Prefer ISO `YYYY-MM-DD` or a numeric due-day column.
+## Verification status and limitations
 
-## Required work before enabling collectors
-
-Migrate the shared document to separate Firestore collections (clients, invoices, payments, reversals, expenses, staff profiles, shifts, handovers, and audit events), with immutable/append-only financial records where appropriate. Add authenticated user profiles keyed by Firebase Auth UID, server-enforced role checks, atomic payment and reversal operations, and a dry-run migration that preserves the original document. Then add Firebase Emulator Suite tests for every security rule and business-critical workflow before enabling staff access.
+- JavaScript syntax checks passed for the application inline scripts, migration script, and emulator test file.
+- The emulator tests are authored but **have not run**. Dependency installation was unavailable in this environment, so the rules have not been compiled by the emulator.
+- No Firebase Console configuration, production migration, rules deployment, hosting deployment, or live sign-in test has been performed.
+- The current rules allow collectors to submit a handover for any positive amount; the app checks the available cash and an admin must confirm receipt. Strong server-side reconciliation of cash totals is still needed before treating handover totals as tamper-proof.
+- There is no server-side billing engine, automated SMS/email reminder service, or scheduled backup/restore test.
+- CSV import maps legacy `DUE AMOUNT` to opening balance. Confirm monthly plan and fees after import. Prefer ISO dates over ambiguous slash-formatted dates.
