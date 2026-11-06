@@ -28,6 +28,20 @@ function normalizeRows(source, key, aliases = []) {
   return [];
 }
 
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map(
+      key => [key, stableValue(value[key])]
+    ));
+  }
+  return value;
+}
+
+function sameRecord(a, b) {
+  return JSON.stringify(stableValue(a)) === JSON.stringify(stableValue(b));
+}
+
 function stableId(row, index, collection) {
   if (typeof row.id === "string" && row.id.trim()) return row.id;
   return `legacy-${collection}-${index + 1}`;
@@ -51,11 +65,16 @@ async function main() {
     throw new Error("Migration marker already exists. Inspect the destination before retrying.");
   }
 
+  const aliases = {
+    users:["USERS","user","USER"], plans:["PLANS"], clients:["CLIENTS"],
+    invoices:["INVOICES"], payments:["PAYMENTS"], reversals:["REVERSALS"],
+    expenses:["EXPENSES","EXPENCES","EXPENCE"], handovers:["HANDOVERS"],
+    shifts:["SHIFTS","SHIFT"], audit:["AUDIT"]
+  };
   const payloads = [];
   const counts = {};
   for (const collection of COLLECTIONS) {
-    const rows = normalizeRows(source, collection, collection === "expenses"
-      ? ["EXPENSES", "EXPENCES", "EXPENCE"] : []);
+    const rows = normalizeRows(source, collection, aliases[collection] || []);
     counts[collection] = rows.length;
     rows.forEach((row, index) => {
       payloads.push({
@@ -122,9 +141,12 @@ async function main() {
     return;
   }
 
-  for (let offset = 0; offset < payloads.length; offset += 400) {
+  const pending = payloads.filter(item =>
+    !alreadyMigrated.has(item.collection + "/" + item.id)
+  );
+  for (let offset = 0; offset < pending.length; offset += 400) {
     const batch = firestore.batch();
-    for (const item of payloads.slice(offset, offset + 400)) {
+    for (const item of pending.slice(offset, offset + 400)) {
       batch.create(firestore.collection(item.collection).doc(item.id), item.data);
     }
     await batch.commit();
