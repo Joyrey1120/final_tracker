@@ -241,7 +241,7 @@ async function loadDb() {
     };
     db = {};
     for (const name of TRACKER_COLLECTIONS) {
-      if (name==="plans" && !admin()) { db[name]=[]; continue; }
+      if ((name==="plans" || name==="audit") && !admin()) { db[name]=[]; continue; }
       if (name==="audit" && !admin()) { db[name]=[]; continue; }
       if (name==="shifts" && !admin()) {
         db[name]=await read(name,ref=>ref.where("userId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
@@ -277,6 +277,51 @@ async function loadDb() {
     db._revision=0;
   }
   dbBaseline=cloneValue(db);
+}
+
+let cloudSyncUnsubscribers=[];
+function stopCloudSync() {
+  for (const unsubscribe of cloudSyncUnsubscribers) unsubscribe();
+  cloudSyncUnsubscribers=[];
+}
+function startCloudSync() {
+  stopCloudSync();
+  if (!collectionsMode || !auth.currentUser) return;
+  const listenRows=(name, makeQuery=null)=>{
+    let ref=dbCloud.collection(name);
+    if (makeQuery) ref=makeQuery(ref);
+    cloudSyncUnsubscribers.push(ref.onSnapshot(snapshot=>{
+      db[name]=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
+      dbBaseline[name]=cloneValue(db[name]);
+      render();
+    },error=>{
+      console.error("Cloud sync listener failed for "+name+":",error);
+      notify("Cloud sync paused for "+name+". Check your connection and reload the tracker.");
+    }));
+  };
+  for (const name of TRACKER_COLLECTIONS) {
+    if (name==="plans" && !admin()) continue;
+    if (name==="audit" && !admin()) continue;
+    if (name==="shifts" && !admin()) {
+      listenRows(name,ref=>ref.where("userId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
+      continue;
+    }
+    if (name==="handovers" && !admin()) {
+      listenRows(name,ref=>ref.where("collectorId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
+      continue;
+    }
+    listenRows(name);
+  }
+  const labelsRef=dbCloud.collection("expenseSettings").doc("labels");
+  cloudSyncUnsubscribers.push(labelsRef.onSnapshot(snapshot=>{
+    db.labels=snapshot.exists && Array.isArray(snapshot.data().labels)
+      ? snapshot.data().labels : ["Fuel","Cash","Rent","ISP Payment","Others"];
+    dbBaseline.labels=cloneValue(db.labels);
+    render();
+  },error=>{
+    console.error("Cloud sync listener failed for expense settings:",error);
+    notify("Cloud settings sync paused. Check your connection and reload the tracker.");
+  }));
 }
 
 // Queue local writes and compare revisions so two rapid actions in this tab
@@ -615,7 +660,7 @@ function dashboard() {
     </div><div class="card">
     <p><strong>Gross income:</strong> recorded collections minus recorded expenses,
     using your requested label. Reversals are deducted on their reversal date.</p>
-    <p class="muted">Local-device totals only. This prototype has no cloud synchronization.</p>
+    <p class="muted">Records are saved to Firebase and sync across signed-in devices while online.</p>
     <h3>Collections by staff — this month</h3>
     ${table(["Staff","Collections","Cash held"],db.users.map(u=>`<tr>
       <td>${esc(u.name)}</td>
@@ -1563,6 +1608,7 @@ window.addEventListener("beforeunload",event=>{
 
 // Authentication is checked before any business data is read.
 auth.onAuthStateChanged(async authUser=>{
+  stopCloudSync();
   signedInUser=authUser;
   userId=null;
   authRole=null;
@@ -1622,6 +1668,7 @@ auth.onAuthStateChanged(async authUser=>{
     myLegacyStaffId=publicProfile.legacyId||null;
     userId=uid;
     await loadDb();
+    startCloudSync();
     if (!collectionsMode) {
       if (authRole!=="admin") throw Error("Collector access is waiting for the approved collection-based data migration.");
       let legacyAccount=db.users.find(u=>(u.email||"").toLowerCase()===email);
