@@ -1589,13 +1589,12 @@ auth.onAuthStateChanged(async authUser=>{
     const publicRef=dbCloud.collection("staffPublic").doc(uid);
     let publicSnap=await publicRef.get();
     let publicProfile=publicSnap.exists?publicSnap.data():null;
+    let invite=null;
+    const inviteSnap=await dbCloud.collection("staffInvites").doc(email).get();
+    if (inviteSnap.exists && inviteSnap.data().active===true) invite=inviteSnap.data();
     if (!publicProfile) {
-      let invite=null;
-      if (!isAdminEmail(email)) {
-        const inviteSnap=await dbCloud.collection("staffInvites").doc(email).get();
-        if (inviteSnap.exists && inviteSnap.data().active===true) invite=inviteSnap.data();
-        if (!invite) throw Error("This email has not been approved for tracker access. Ask an administrator to add it to Staff.");
-      }
+      if (!isAdminEmail(email) && !invite)
+        throw Error("This email has not been approved for tracker access. Ask an administrator to add it to Staff.");
       const role=isAdminEmail(email)?"admin":invite.role;
       const name=isAdminEmail(email)?"Administrator":(invite.name||email.split("@")[0]);
       const privateRef=dbCloud.collection("staffPrivate").doc(uid);
@@ -1604,6 +1603,10 @@ auth.onAuthStateChanged(async authUser=>{
       publicProfile={id:uid,name,role,active:true,legacyId:invite?.legacyId||""};
     }
     if (publicProfile.active===false) throw Error("This staff account is inactive. Ask an administrator for access.");
+    if (!publicProfile.legacyId && invite?.legacyId) {
+      publicProfile.legacyId=invite.legacyId;
+      if (isAdminEmail(email)) await publicRef.update({legacyId:invite.legacyId});
+    }
     if (isAdminEmail(email) && publicProfile.role!=="admin") {
       await publicRef.update({role:"admin"});
       publicProfile.role="admin";
