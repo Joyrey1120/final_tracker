@@ -61,14 +61,14 @@ Before any production rules deployment, cover at least:
 - Calendar boundaries accept January 2026 and December 2050 and reject months outside that range.
 - Dry-run migration is repeatable and preserves exact source counts and values.
 
-The branch now includes Firestore Emulator test configuration and a rules test suite at `tests/firestore.rules.test.js`. JavaScript syntax checks passed, but the Emulator suite has not run because the test dependencies could not be downloaded in this environment. Do not describe the rules or migration as emulator-tested until `npm test` completes successfully. No live Firebase project was accessed.
+The branch includes Firestore Emulator test configuration and the suite at `tests/firestore.rules.test.js`; the suite passed in GitHub Actions at the current development revision. A simulated interrupted migration also verified resume behavior after the first 400-record batch. The live Console was inspected read-only: Email/Password is enabled and both administrator accounts exist; Firebase Hosting is not initialized. No production data migration or rules/Hosting deployment has occurred.
 
 ## Firebase Console actions needed for the interim admin sign-in
 
-1. Select existing project `final-tracker-743c3`; do not create another Firebase project.
-2. In Authentication, enable Email/Password if it is not already enabled. Create `dictomesagarino@gmail.com` or confirm its existing account, set/reset its password privately, and verify the email.
-3. In Firestore, preserve and back up `prototypes/isp-tracker`.
-4. Review this branch's `firestore.rules`. Deploying those rules is a separate production action and is intentionally not performed here. They temporarily permit the existing owner and this additional admin to the full shared document; collectors remain denied.
-5. Add the hosted site domain to Firebase Authentication's authorized domains if needed.
+1. Use existing project `final-tracker-743c3`; do not create another Firebase project. Email/Password is enabled, and Auth records for `sagarinojoyrey@gmail.com` and `dictomesagarino@gmail.com` exist.
+2. Confirm the additional admin's email is verified and set/reset its password privately if needed; then test sign-in.
+3. Back up `prototypes/isp-tracker` and verify source counts and values.
+4. Review and deploy this branch's `firestore.rules`. They allow the existing owner to retain legacy access, permit the additional admin only with an active admin profile, and deny collectors access to the shared legacy document.
+5. Initialize Firebase Hosting for the existing project, deploy the website after migration, and add the resulting hosted domain to Authentication's authorized domains if needed.
 
 The interim rule change is not a collector migration and must not be used to enable collector logins.
