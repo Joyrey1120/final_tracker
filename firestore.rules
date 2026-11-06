@@ -50,6 +50,7 @@ service cloud.firestore {
         && get(invitePath).data.active == true
         && get(invitePath).data.email == request.auth.token.email
         && get(invitePath).data.role == request.resource.data.role
+        && request.resource.data.legacyId == get(invitePath).data.legacyId
         && request.resource.data.active == true;
     }
     function legacyStaffId() {
