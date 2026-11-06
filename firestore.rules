@@ -139,7 +139,7 @@ service cloud.firestore {
       allow get: if canUseTracker() || (signedIn() && uid == request.auth.uid);
       allow create: if isAdmin()
         || (signedIn() && uid == request.auth.uid
-          && request.auth.token.email == "dictomesagarinojoyrey@gmail.com"
+          && request.auth.token.email == "dictomesagarino@gmail.com"
           && request.resource.data.role == "admin"
           && request.resource.data.active == true
           && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"]))
@@ -159,7 +159,7 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create: if isAdmin()
         || (signedIn() && uid == request.auth.uid
-          && request.auth.token.email == "dictomesagarinojoyrey@gmail.com"
+          && request.auth.token.email == "dictomesagarino@gmail.com"
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.keys().hasOnly(["email", "mobile"]))
         || (validSelfInvite(uid)
