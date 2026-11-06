@@ -53,6 +53,10 @@ beforeEach(async()=>{
     await setDoc(doc(db,"shifts","oldShift"),{
       id:"oldShift",userId:"legacy-collector",startedAt:"2026-11-05T08:00:00Z",endedAt:"2026-11-05T12:00:00Z"
     });
+    await setDoc(doc(db,"shifts","legacyActiveShift"),{
+      id:"legacyActiveShift",userId:"legacy-collector",
+      startedAt:"2026-11-06T08:00:00Z",endedAt:null
+    });
     await setDoc(doc(db,"payments","existing"),{
       id:"existing",clientId:"client1",recorderId:"legacy-collector",
       amount:10000,method:"Cash",date:"2026-11-05",shiftId:"oldShift"
@@ -120,13 +124,23 @@ test("cash records are limited to the collector's own UID and preserved legacy I
   await assertSucceeds(getDocs(own));
   await assertSucceeds(getDoc(doc(db,"shifts","oldShift")));
   await assertFails(getDoc(doc(db,"shifts","otherShift")));
+  await assertSucceeds(setDoc(doc(db,"shifts","legacyActiveShift"),{
+    endedAt:"2026-11-06T16:00:00.000Z"
+  },{merge:true}));
+  await assertSucceeds(setDoc(doc(db,"shifts","newShift"),{
+    id:"newShift",userId:"collectorUid",startedAt:"2026-11-06T16:00:00.000Z",endedAt:null
+  }));
+  await assertFails(setDoc(doc(db,"shifts","badShift"),{
+    id:"badShift",userId:"collectorUid",startedAt:"2026-11-06T16:00:00.000Z",endedAt:null,
+    extra:"denied"
+  }));
   await assertSucceeds(setDoc(doc(db,"handovers","handover1"),{
-    id:"handover1",collectorId:"collectorUid",amount:5000,
-    status:"Pending",shiftId:"shift1",date:"2026-11-06"
+    id:"handover1",collectorId:"collectorUid",amount:5000,note:"",
+    at:"2026-11-06T08:10:00.000Z",status:"Pending",shiftId:"shift1",date:"2026-11-06"
   }));
   await assertFails(setDoc(doc(db,"handovers","fakeOwner"),{
-    id:"fakeOwner",collectorId:"otherUid",amount:5000,
-    status:"Pending",shiftId:"shift1",date:"2026-11-06"
+    id:"fakeOwner",collectorId:"otherUid",amount:5000,note:"",
+    at:"2026-11-06T08:10:00.000Z",status:"Pending",shiftId:"shift1",date:"2026-11-06"
   }));
 });
 
