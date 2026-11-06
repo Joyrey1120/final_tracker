@@ -369,7 +369,8 @@ function save() {
           if (!row.email) continue;
           batch.set(dbCloud.collection("staffInvites").doc(row.email.toLowerCase()),{
             email:row.email.toLowerCase(),role:row.role==="admin"?"admin":"collector",
-            active:row.active!==false,name:row.name||"",mobile:row.mobile||""
+            active:row.active!==false,name:row.name||"",mobile:row.mobile||"",
+            legacyId:row.legacyId||""
           });
           writes++;
         }
@@ -1626,6 +1627,8 @@ auth.onAuthStateChanged(async authUser=>{
       }
       if (legacyAccount.id!==uid && publicProfile.legacyId!==legacyAccount.id) {
         publicProfile.legacyId=legacyAccount.id;
+        const currentProfile=db.users.find(row=>row.id===uid);
+        if (currentProfile) currentProfile.legacyId=legacyAccount.id;
         await publicRef.update({legacyId:legacyAccount.id});
       }
       userId=legacyAccount.id;
