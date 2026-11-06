@@ -10,7 +10,10 @@ service cloud.firestore {
         && request.auth.token.email_verified == true
         && (
           request.auth.token.email == "sagarinojoyrey@gmail.com"
-          || request.auth.token.email == "dictomesagarino@gmail.com"
+          || (request.auth.token.email == "dictomesagarino@gmail.com"
+            && exists(/databases/$(database)/documents/staffPublic/$(request.auth.uid))
+            && get(/databases/$(database)/documents/staffPublic/$(request.auth.uid)).data.role == "admin"
+            && get(/databases/$(database)/documents/staffPublic/$(request.auth.uid)).data.active == true)
         );
     }
 
@@ -19,10 +22,7 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email_verified == true;
     }
     function bootstrapAdmin() {
-      return signedIn() && (
-        request.auth.token.email == "sagarinojoyrey@gmail.com"
-        || request.auth.token.email == "dictomesagarino@gmail.com"
-      );
+      return signedIn() && request.auth.token.email == "sagarinojoyrey@gmail.com";
     }
     function publicProfile(uid) {
       return /databases/$(database)/documents/staffPublic/$(uid);
