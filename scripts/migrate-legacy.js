@@ -120,13 +120,22 @@ async function main() {
     throw new Error("Duplicate source IDs found; no writes made: " + duplicateIds.slice(0, 20).join(", "));
   }
 
+  // Resume safely if an earlier apply stopped partway through its batches.
+  // Existing destination documents are accepted only when their contents match
+  // the expected source row exactly; conflicting data is never overwritten.
+  const alreadyMigrated = new Set();
   const conflicts = [];
   for (const item of payloads) {
     const existing = await firestore.collection(item.collection).doc(item.id).get();
-    if (existing.exists) conflicts.push(`${item.collection}/${item.id}`);
+    if (!existing.exists) continue;
+    if (sameRecord(existing.data(), item.data)) {
+      alreadyMigrated.add(item.collection + "/" + item.id);
+    } else {
+      conflicts.push(item.collection + "/" + item.id);
+    }
   }
   if (conflicts.length) {
-    throw new Error("Destination contains records; no writes made: " + conflicts.slice(0, 20).join(", "));
+    throw new Error("Destination contains conflicting records; no writes made: " + conflicts.slice(0, 20).join(", "));
   }
 
   console.log(JSON.stringify({
@@ -134,6 +143,8 @@ async function main() {
     source: SOURCE.join("/"),
     counts,
     destinationRecords: payloads.length,
+    alreadyMigratedRecords: alreadyMigrated.size,
+    pendingRecords: payloads.length - alreadyMigrated.size,
     sourcePreserved: true
   }, null, 2));
   if (!apply) {
