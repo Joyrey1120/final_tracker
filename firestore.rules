@@ -59,7 +59,7 @@ service cloud.firestore {
     function activeShift(shiftId) {
       return shiftId is string
         && exists(/databases/$(database)/documents/shifts/$(shiftId))
-        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId == request.auth.uid
+        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId in [request.auth.uid, legacyStaffId()]
         && get(/databases/$(database)/documents/shifts/$(shiftId)).data.endedAt == null;
     }
 
@@ -154,7 +154,7 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.endedAt == null;
       allow update: if isCollector()
-        && resource.data.userId == request.auth.uid
+        && resource.data.userId in [request.auth.uid, legacyStaffId()]
         && resource.data.endedAt == null
         && request.resource.data.endedAt is string
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["endedAt"]);
