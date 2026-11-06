@@ -195,3 +195,24 @@ test("a verified invited collector can claim a UID-bound profile but cannot clai
     active:true,legacyId:"legacy-new"
   }));
 });
+
+test("approved second admin can enroll only their own verified UID profile",async()=>{
+  const db=env.authenticatedContext("secondAdminUid",{
+    email:secondAdminEmail,email_verified:true
+  }).firestore();
+  await assertSucceeds(setDoc(doc(db,"staffPublic","secondAdminUid"),{
+    id:"secondAdminUid",name:"Administrator",role:"admin",active:true,legacyId:""
+  }));
+  await assertSucceeds(setDoc(doc(db,"staffPrivate","secondAdminUid"),{
+    email:secondAdminEmail,mobile:""
+  }));
+  await assertFails(setDoc(doc(db,"staffPublic","otherUid"),{
+    id:"otherUid",name:"Administrator",role:"admin",active:true,legacyId:""
+  }));
+  const unverified=env.authenticatedContext("unverifiedAdminUid",{
+    email:secondAdminEmail,email_verified:false
+  }).firestore();
+  await assertFails(setDoc(doc(unverified,"staffPublic","unverifiedAdminUid"),{
+    id:"unverifiedAdminUid",name:"Administrator",role:"admin",active:true,legacyId:""
+  }));
+});
