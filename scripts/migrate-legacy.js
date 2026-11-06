@@ -74,7 +74,7 @@ async function main() {
       data: {
         email: u.email.trim().toLowerCase(),
         role: ADMIN_EMAILS.has(u.email.trim().toLowerCase()) ? "admin" : "collector",
-        active: true,
+        active: u.active !== false,
         name: String(u.name || ""),
         mobile: String(u.mobile || ""),
         legacyId: String(u.id || "")
