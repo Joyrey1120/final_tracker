@@ -186,7 +186,38 @@ let db;
 async function loadDb() {
   const snap = await docRef.get();
   if (snap.exists) {
-    db = snap.data();
+    db = snap.data() || {};
+
+    // Older/manual Firestore documents may use uppercase or legacy field names.
+    // Normalize them in memory without deleting or rewriting the original fields.
+    const arrayField = (canonical, aliases = []) => {
+      const candidates = [canonical, ...aliases];
+      let value;
+      for (const key of candidates) {
+        if (Array.isArray(db[key])) { value = db[key]; break; }
+      }
+      if (!Array.isArray(value)) value = [];
+      // Record collections must contain objects, not empty-string placeholders.
+      db[canonical] = value.filter(item =>
+        item !== null && typeof item === "object" && !Array.isArray(item)
+      );
+    };
+
+    arrayField("users", ["USERS", "user", "USER"]);
+    arrayField("plans", ["PLANS"]);
+    arrayField("clients", ["CLIENTS"]);
+    arrayField("invoices", ["INVOICES"]);
+    arrayField("payments", ["PAYMENTS"]);
+    arrayField("reversals", ["REVERSALS"]);
+    arrayField("expenses", ["EXPENSES", "EXPENCES", "EXPENCE"]);
+    arrayField("handovers", ["HANDOVERS"]);
+    arrayField("shifts", ["SHIFTS", "SHIFT"]);
+    arrayField("audit", ["AUDIT"]);
+
+    const labels = Array.isArray(db.labels) ? db.labels : [];
+    db.labels = labels.filter(label => typeof label === "string" && label.trim());
+    if (!db.labels.length) db.labels = ["Fuel","Cash","Rent","ISP Payment","Others"];
+
     db._revision = Number(db._revision || 0);
   } else {
     db = {
