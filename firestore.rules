@@ -215,7 +215,13 @@ service cloud.firestore {
         && validShift(request.resource.data, id)
         && request.resource.data.endedAt == null;
       allow update: if isCollector()
-        && validShift(request.resource.data, id)
+        && request.resource.data.keys().hasOnly(["id", "userId", "startedAt", "endedAt"])
+        && request.resource.data.keys().hasAll(["id", "userId", "startedAt", "endedAt"])
+        && request.resource.data.id == id
+        && request.resource.data.userId == resource.data.userId
+        && shortString(request.resource.data, "userId", 128)
+        && request.resource.data.startedAt == resource.data.startedAt
+        && validTimestamp(request.resource.data.startedAt)
         && resource.data.userId in [request.auth.uid, legacyStaffId()]
         && resource.data.endedAt == null
         && validTimestamp(request.resource.data.endedAt)
