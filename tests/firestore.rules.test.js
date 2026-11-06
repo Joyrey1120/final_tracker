@@ -154,6 +154,9 @@ test("a verified invited collector can claim a UID-bound profile but cannot clai
     id:"newCollectorUid",name:"New Collector",role:"collector",
     active:true,legacyId:"legacy-new"
   }));
+  await assertSucceeds(setDoc(doc(db,"staffPrivate","newCollectorUid"),{
+    email:"newcollector@example.test",mobile:""
+  }));
   await assertFails(setDoc(doc(db,"staffPublic","newCollectorUid"),{
     id:"newCollectorUid",name:"New Collector",role:"admin",
     active:true,legacyId:"legacy-new"
