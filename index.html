@@ -155,7 +155,7 @@ function today() {
   const get = type => parts.find(p => p.type === type).value;
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
-const monthOf = day => day.slice(0,7);
+const monthOf = day => typeof day === "string" ? day.slice(0,7) : "";
 const thisMonth = () => monthOf(today());
 function nextMonth(month) {
   const [y,m] = month.split("-").map(Number);
