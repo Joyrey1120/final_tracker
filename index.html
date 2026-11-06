@@ -1603,6 +1603,10 @@ auth.onAuthStateChanged(async authUser=>{
       publicProfile={id:uid,name,role,active:true,legacyId:invite?.legacyId||""};
     }
     if (publicProfile.active===false) throw Error("This staff account is inactive. Ask an administrator for access.");
+    if (isAdminEmail(email) && publicProfile.role!=="admin") {
+      await publicRef.update({role:"admin"});
+      publicProfile.role="admin";
+    }
     if (!["admin","collector"].includes(publicProfile.role))
       throw Error("This account has an unsupported role.");
     authRole=publicProfile.role;
