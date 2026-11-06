@@ -63,10 +63,13 @@ function fixture({ failCommitOnce = false } = {}) {
   };
   const fire = () => firestore;
   fire.FieldValue = { serverTimestamp: () => "SERVER_TIMESTAMP" };
-  const admin = {
+  const appModule = {
     initializeApp() {},
-    credential: { applicationDefault: () => ({}) },
-    firestore: fire
+    applicationDefault: () => ({})
+  };
+  const firestoreModule = {
+    getFirestore: () => firestore,
+    FieldValue: { serverTimestamp: () => "SERVER_TIMESTAMP" }
   };
 
   async function run(args = []) {
@@ -75,7 +78,8 @@ function fixture({ failCommitOnce = false } = {}) {
     const fakeProcess = { argv: ["node", scriptPath, ...args], exitCode: 0 };
     const result = vm.runInNewContext(runnable, {
       require: name => {
-        if (name === "firebase-admin") return admin;
+        if (name === "firebase-admin/app") return appModule;
+        if (name === "firebase-admin/firestore") return firestoreModule;
         throw new Error("Unexpected module: " + name);
       },
       process: fakeProcess,
