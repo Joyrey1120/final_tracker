@@ -186,82 +186,211 @@ const money = c => new Intl.NumberFormat("en-PH", {
 const sum = rows => rows.reduce((total,row)=>total+row.amount,0);
 
 let db;
-// load or create your shared prototype state
+let dbBaseline = {};
+let collectionsMode = false;
+const TRACKER_COLLECTIONS = [
+  "plans","clients","invoices","payments","reversals","expenses",
+  "handovers","shifts","audit"
+];
+const cloneValue = value => JSON.parse(JSON.stringify(value));
+const sortObject = value => Array.isArray(value) ? value.map(sortObject)
+  : value && typeof value==="object"
+    ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,sortObject(value[k])]))
+    : value;
+const sameValue = (a,b) => JSON.stringify(sortObject(a))===JSON.stringify(sortObject(b));
+
 async function loadDb() {
-  const snap = await docRef.get();
-  if (snap.exists) {
-    db = snap.data() || {};
-
-    // Older/manual Firestore documents may use uppercase or legacy field names.
-    // Normalize them in memory without deleting or rewriting the original fields.
-    const arrayField = (canonical, aliases = []) => {
-      const candidates = [canonical, ...aliases];
-      let value;
-      for (const key of candidates) {
-        if (Array.isArray(db[key])) { value = db[key]; break; }
+  const marker = await dbCloud.collection("migrationMeta").doc("collection-v1").get();
+  collectionsMode = marker.exists;
+  if (!collectionsMode) {
+    const snap = await docRef.get();
+    if (!snap.exists) {
+      db = {
+        _revision:0,
+        users:[{id:"admin",name:"Administrator",email:"admin@example.test",mobile:"",role:"admin"}],
+        plans:[],clients:[],invoices:[],payments:[],reversals:[],
+        expenses:[],labels:["Fuel","Cash","Rent","ISP Payment","Others"],
+        handovers:[],shifts:[],audit:[]
+      };
+      await docRef.set(db);
+    } else {
+      db = snap.data() || {};
+      const aliases = {
+        users:["USERS","user","USER"], plans:["PLANS"], clients:["CLIENTS"],
+        invoices:["INVOICES"], payments:["PAYMENTS"], reversals:["REVERSALS"],
+        expenses:["EXPENSES","EXPENCES","EXPENCE"], handovers:["HANDOVERS"],
+        shifts:["SHIFTS","SHIFT"], audit:["AUDIT"]
+      };
+      for (const [key, names] of Object.entries(aliases)) {
+        const source = [key,...names].map(name=>db[name]).find(Array.isArray) || [];
+        db[key] = source.filter(row=>row && typeof row==="object" && !Array.isArray(row));
       }
-      if (!Array.isArray(value)) value = [];
-      // Record collections must contain objects, not empty-string placeholders.
-      db[canonical] = value.filter(item =>
-        item !== null && typeof item === "object" && !Array.isArray(item)
-      );
-    };
-
-    arrayField("users", ["USERS", "user", "USER"]);
-    arrayField("plans", ["PLANS"]);
-    arrayField("clients", ["CLIENTS"]);
-    arrayField("invoices", ["INVOICES"]);
-    arrayField("payments", ["PAYMENTS"]);
-    arrayField("reversals", ["REVERSALS"]);
-    arrayField("expenses", ["EXPENSES", "EXPENCES", "EXPENCE"]);
-    arrayField("handovers", ["HANDOVERS"]);
-    arrayField("shifts", ["SHIFTS", "SHIFT"]);
-    arrayField("audit", ["AUDIT"]);
-
-    const labels = Array.isArray(db.labels) ? db.labels : [];
-    db.labels = labels.filter(label => typeof label === "string" && label.trim());
-    if (!db.labels.length) db.labels = ["Fuel","Cash","Rent","ISP Payment","Others"];
-
-    db._revision = Number(db._revision || 0);
+      db.labels = Array.isArray(db.labels)
+        ? db.labels.filter(label=>typeof label==="string" && label.trim())
+        : ["Fuel","Cash","Rent","ISP Payment","Others"];
+      if (!db.labels.length) db.labels=["Fuel","Cash","Rent","ISP Payment","Others"];
+      db._revision = Number(db._revision || 0);
+    }
   } else {
-    db = {
-      _revision:0,
-      users:[{ id:"admin", name:"Administrator", email:"admin@example.test", mobile:"", role:"admin"}],
-      plans:[], clients:[], invoices:[], payments:[], reversals:[],
-      expenses:[], labels:["Fuel","Cash","Rent","ISP Payment","Others"],
-      handovers:[], shifts:[], audit:[]
+    const read = async (name, query=null) => {
+      const ref=dbCloud.collection(name);
+      const snap=query ? await query(ref).get() : await ref.get();
+      return snap.docs.map(doc=>({id:doc.id,...doc.data()}));
     };
-    await docRef.set(db);
+    db = {};
+    for (const name of TRACKER_COLLECTIONS) {
+      if (name==="plans" && !admin()) { db[name]=[]; continue; }
+      if (name==="audit" && !admin()) { db[name]=[]; continue; }
+      if (name==="shifts" && !admin()) {
+        db[name]=await read(name,ref=>ref.where("userId","==",auth.currentUser.uid));
+        continue;
+      }
+      if (name==="handovers" && !admin()) {
+        db[name]=await read(name,ref=>ref.where("collectorId","==",auth.currentUser.uid));
+        continue;
+      }
+      db[name]=await read(name);
+    }
+    db.users=await read("staffPublic");
+    if (admin()) {
+      const privateUsers=await read("staffPrivate");
+      const privateById=new Map(privateUsers.map(row=>[row.id,row]));
+      db.users=db.users.map(row=>({...row,...(privateById.get(row.id)||{})}));
+      const invitations=await read("staffInvites");
+      for (const invitation of invitations) {
+        if (!db.users.some(row=>(row.email||"").toLowerCase()===invitation.email.toLowerCase())) {
+          db.users.push({id:"invite:"+invitation.id,...invitation,preapproved:true});
+        }
+      }
+    } else {
+      const own=await dbCloud.collection("staffPrivate").doc(auth.currentUser.uid).get();
+      if (own.exists) {
+        const index=db.users.findIndex(row=>row.id===auth.currentUser.uid);
+        if (index>=0) db.users[index]={...db.users[index],...own.data()};
+      }
+    }
+    const labels=await dbCloud.collection("expenseSettings").doc("labels").get();
+    db.labels=labels.exists && Array.isArray(labels.data().labels)
+      ? labels.data().labels : ["Fuel","Cash","Rent","ISP Payment","Others"];
+    db._revision=0;
   }
+  dbBaseline=cloneValue(db);
 }
 
 // Queue local writes and compare revisions so two rapid actions in this tab
 // do not race each other or silently overwrite a newer session's data.
 let saveQueue = Promise.resolve();
 function save() {
-  const task = saveQueue.then(async()=>{
+  const task=saveQueue.then(async()=>{
     try {
-      const nextRevision = await dbCloud.runTransaction(async transaction => {
-        const snap = await transaction.get(docRef);
-        const currentRevision = snap.exists ? Number(snap.data()._revision || 0) : 0;
-        if (currentRevision !== Number(db._revision || 0)) {
-          throw Error("The database changed in another session. Reload the tracker before saving again.");
-        }
-        const revision = currentRevision + 1;
-        transaction.set(docRef, {
-          ...db,
-          _revision:revision,
-          _updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      if (!collectionsMode) {
+        const nextRevision=await dbCloud.runTransaction(async transaction=>{
+          const snap=await transaction.get(docRef);
+          const currentRevision=snap.exists?Number(snap.data()._revision||0):0;
+          if (currentRevision!==Number(db._revision||0))
+            throw Error("The database changed in another session. Reload the tracker before saving again.");
+          const revision=currentRevision+1;
+          transaction.set(docRef,{...db,_revision:revision,
+            _updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+          return revision;
         });
-        return revision;
-      });
-      db._revision = nextRevision;
+        db._revision=nextRevision;
+        dbBaseline=cloneValue(db);
+        return;
+      }
+      const batch=dbCloud.batch();
+      let writes=0;
+      const persistRows=(name,oldRows,newRows,allowed)=>{
+        const oldById=new Map(oldRows.map(row=>[row.id,row]));
+        const newById=new Map(newRows.map(row=>[row.id,row]));
+        const ref=dbCloud.collection(name);
+        for (const [id,row] of newById) {
+          const old=oldById.get(id);
+          if (!old || !sameValue(old,row)) {
+            if (!allowed(row,old)) throw Error("This account cannot change "+name+".");
+            batch.set(ref.doc(id),row);
+            writes++;
+          }
+        }
+        for (const [id,row] of oldById) {
+          if (!newById.has(id)) {
+            if (!allowed(null,row)) throw Error("This account cannot delete from "+name+".");
+            batch.delete(ref.doc(id));
+            writes++;
+          }
+        }
+      };
+      for (const name of TRACKER_COLLECTIONS) {
+        const adminOnly=["plans","clients","invoices","expenses","reversals"];
+        if (adminOnly.includes(name) && !admin()) continue;
+        if (name==="shifts" && !admin()) {
+          persistRows(name,dbBaseline.shifts||[],db.shifts||[],
+            (next,old)=>!!next && !!old && old.userId===auth.currentUser.uid
+              && !old.endedAt && !!next.endedAt);
+          continue;
+        }
+        if (name==="handovers" && !admin()) {
+          persistRows(name,dbBaseline.handovers||[],db.handovers||[],
+            (next,old)=>!!next && !old && next.collectorId===auth.currentUser.uid);
+          continue;
+        }
+        if (name==="payments" && !admin()) {
+          persistRows(name,dbBaseline.payments||[],db.payments||[],
+            (next,old)=>!!next && !old && next.recorderId===auth.currentUser.uid);
+          continue;
+        }
+        if (name==="audit" && !admin()) {
+          persistRows(name,dbBaseline.audit||[],db.audit||[],
+            (next,old)=>!!next && !old && next.actor===auth.currentUser.email);
+          continue;
+        }
+        persistRows(name,dbBaseline[name]||[],db[name]||[],()=>admin());
+      }
+      const oldUsers=dbBaseline.users||[], newUsers=db.users||[];
+      if (admin()) {
+        const oldById=new Map(oldUsers.filter(u=>!u.preapproved).map(u=>[u.id,u]));
+        const newById=new Map(newUsers.filter(u=>!u.preapproved).map(u=>[u.id,u]));
+        for (const [id,row] of newById) {
+          const old=oldById.get(id);
+          if (!old || !sameValue(old,row)) {
+            batch.set(dbCloud.collection("staffPublic").doc(id),{
+              id,name:row.name||"",role:row.role,active:row.active!==false
+            });
+            batch.set(dbCloud.collection("staffPrivate").doc(id),{
+              email:(row.email||"").toLowerCase(),mobile:row.mobile||""
+            });
+            writes+=2;
+          }
+        }
+        for (const row of newUsers.filter(u=>u.preapproved || !oldById.has(u.id))) {
+          if (!row.email) continue;
+          batch.set(dbCloud.collection("staffInvites").doc(row.email.toLowerCase()),{
+            email:row.email.toLowerCase(),role:row.role==="admin"?"admin":"collector",
+            active:row.active!==false,name:row.name||"",mobile:row.mobile||""
+          });
+          writes++;
+        }
+        for (const [id,row] of oldById) {
+          if (!newById.has(id)) {
+            batch.set(dbCloud.collection("staffPublic").doc(id),{
+              id,name:row.name||"",role:row.role,active:false
+            });
+            writes++;
+          }
+        }
+      }
+      if (!sameValue(dbBaseline.labels||[],db.labels||[]) && admin()) {
+        batch.set(dbCloud.collection("expenseSettings").doc("labels"),{labels:db.labels||[]});
+        writes++;
+      }
+      if (writes) await batch.commit();
+      dbBaseline=cloneValue(db);
     } catch(e) {
       console.error("Save failed:",e);
       throw e;
     }
   });
-  saveQueue = task.catch(()=>{});
+  saveQueue=task.catch(()=>{});
   return task;
 }
 let userId = null;
@@ -273,10 +402,10 @@ let clientQuery = "";
 
 const user = () => db?.users?.find(u=>u.id===userId);
 const isAdminEmail = email => ADMIN_EMAILS.has((email||"").toLowerCase());
-const admin = () => !!signedInUser && isAdminEmail(signedInUser.email) && user()?.role==="admin";
+const admin = () => !!signedInUser && signedInUser.emailVerified===true && user()?.role==="admin" && user()?.active!==false;
 
 function requireUser() {
-  if (!signedInUser || !user()) throw Error("Please sign in with the authorized administrator account.");
+  if (!signedInUser || !user() || user()?.active===false) throw Error("Your staff account is not active.");
 }
 function requireAdmin() {
   requireUser();
