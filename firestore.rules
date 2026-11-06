@@ -43,12 +43,16 @@ service cloud.firestore {
     function canUseTracker() {
       return isAdmin() || isCollector();
     }
-    function validSelfProfile(uid) {
+    function validSelfInvite(uid) {
       let invitePath = /databases/$(database)/documents/staffInvites/$(request.auth.token.email);
       return signedIn() && uid == request.auth.uid
         && exists(invitePath)
         && get(invitePath).data.active == true
-        && get(invitePath).data.email == request.auth.token.email
+        && get(invitePath).data.email == request.auth.token.email;
+    }
+    function validSelfProfile(uid) {
+      let invitePath = /databases/$(database)/documents/staffInvites/$(request.auth.token.email);
+      return validSelfInvite(uid)
         && get(invitePath).data.role == request.resource.data.role
         && request.resource.data.legacyId == get(invitePath).data.legacyId
         && request.resource.data.active == true;
@@ -92,7 +96,7 @@ service cloud.firestore {
           && request.auth.token.email == "dictomesagarinojoyrey@gmail.com"
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.keys().hasOnly(["email", "mobile"]))
-        || (validSelfProfile(uid)
+        || (validSelfInvite(uid)
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.keys().hasOnly(["email", "mobile"]));
       allow update, delete: if isAdmin();
