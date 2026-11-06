@@ -2,14 +2,14 @@
 
 ## Current development branch
 
-The application still stores every business record in the single Firestore document `prototypes/isp-tracker`. Its security rules therefore grant access only to the verified owner and the explicitly authorized additional administrator:
+The development branch now has two data modes: it retains the original owner/admin-only single-document mode until a migration marker exists, and reads separate Firestore collections after migration. The role rules deny collectors access to the legacy document. In collection mode they allow the demo's collector reads and narrowly scoped payment, shift, handover, and audit writes. The source document remains intact.
 
 - Existing owner: `sagarinojoyrey@gmail.com`
 - Additional administrator: `dictomesagarino@gmail.com`
 
 Both accounts currently receive the same broad access to that shared document. The application creates an admin profile for the second address on its first verified sign-in when no matching profile exists. Existing owner profile IDs and all existing document fields are retained. No collector is granted access by these transitional rules.
 
-This is an interim, admin-only step. The current code does not yet implement the final collection-based security boundary.
+The app, role rules, UID enrollment path, and dry-run migration utility are present on the development branch. The new mode is not active until the rules are deployed and the migration script is run. This work has not been deployed to the existing Firebase project.
 
 ## Collector permission matrix from the supplied demo
 
@@ -32,11 +32,11 @@ Admin controls to retain include client deactivate/reactivate, guarded permanent
 
 1. In Firebase Console, export `prototypes/isp-tracker` and retain the original unchanged. Confirm arrays and record counts for users, plans, clients, invoices, payments, reversals, expenses, handovers, shifts, and audit.
 2. Add the additional admin account in Firebase Authentication with a privately set password and verified email. Confirm its UID. Do not place passwords in the repository or chat.
-3. In a staging/test environment with synthetic data, create UID-keyed staff profiles and separate collections for clients, invoices, payments, reversals, expenses, plans, shifts, handovers, and audit events. Keep the original document as a read-only source.
-4. Write an idempotent dry-run migrator that reports source counts, destination counts, duplicate IDs, missing references, and amount/date discrepancies. Require zero unexplained discrepancies before a write run. Keep a migration marker and never delete the source document.
-5. Deploy the new application and rules together only after rules-emulator tests pass. Deny legacy writes after cutover; keep the legacy document readable by admins for rollback/audit until a separately approved retention decision.
-6. Confirm the owner and additional admin can perform admin actions, and a collector can perform only the matrix above. Test direct Firestore requests for every forbidden action, not only hidden UI buttons.
-7. Back up the migrated collections and document the rollback path before production cutover.
+3. Install the migration utility dependency from `scripts/` and run `node scripts/migrate-legacy.js` with Application Default Credentials for the existing project. Dry-run is the default; review counts, conflicts, and output first. The script handles legacy aliases, preserves stable IDs, adds UID-enrollment invitations, and never edits or deletes the source document.
+4. With the app closed to all users, export the legacy document, then run `node scripts/migrate-legacy.js --apply`. The script writes collection records in resumable 400-document batches and writes the migration marker last. If source records changed during an interrupted run, resolve the reported conflicts manually before retrying.
+5. Install the test dependencies from `tests/` and run `npm test` there. This starts the Firestore Emulator and runs role and permission tests. Require all tests to pass before deployment.
+6. Deploy the rules before the website, then confirm the owner, additional admin, and a collector can perform only their allowed actions. Test direct Firestore requests as well as the UI.
+7. Back up the migrated collections and document the rollback path before production cutover. Keep the original document unchanged until a separately approved retention decision.
 
 ## Planned role and data model
 
@@ -61,7 +61,7 @@ Before any production rules deployment, cover at least:
 - Calendar boundaries accept January 2026 and December 2050 and reject months outside that range.
 - Dry-run migration is repeatable and preserves exact source counts and values.
 
-The repository does not currently contain Firebase Emulator test configuration, and these checks have not been executed against an emulator or the live project. Do not describe the migration as tested until those results are recorded.
+The branch now includes Firestore Emulator test configuration and a rules test suite at `tests/firestore.rules.test.js`. JavaScript syntax checks passed, but the Emulator suite has not run because the test dependencies could not be downloaded in this environment. Do not describe the rules or migration as emulator-tested until `npm test` completes successfully. No live Firebase project was accessed.
 
 ## Firebase Console actions needed for the interim admin sign-in
 
