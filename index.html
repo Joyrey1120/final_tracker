@@ -541,7 +541,7 @@ function clientName(id) {
   return db.clients.find(c=>c.id===id)?.name || "Unknown client";
 }
 function userName(id) {
-  return db.users.find(u=>u.id===id)?.name || "Unknown user";
+  return db.users.find(u=>u.id===id || u.legacyId===id)?.name || "Unknown user";
 }
 function render() {
   $("logoutButton").hidden=!signedInUser;
@@ -617,7 +617,7 @@ function dashboard() {
     <h3>Collections by staff — this month</h3>
     ${table(["Staff","Collections","Cash held"],db.users.map(u=>`<tr>
       <td>${esc(u.name)}</td>
-      <td>${money(sum(entries.filter(p=>p.recorderId===u.id &&
+      <td>${money(sum(entries.filter(p=>[u.id,u.legacyId].filter(Boolean).includes(p.recorderId) &&
         monthOf(p.date)===thisMonth())))}</td>
       <td>${money(cashHeld(u.id))}</td></tr>`))}
     </div>`;
@@ -1193,7 +1193,9 @@ function shiftCalendarMonth(delta) {
 
 function cashView() {
   const visible=admin()?db.users:db.users.filter(u=>u.id===userId);
-  const handovers=admin()?db.handovers:db.handovers.filter(h=>h.collectorId===userId);
+  const currentStaff=db.users.find(u=>u.id===userId);
+  const ownIds=new Set([userId,currentStaff?.legacyId].filter(Boolean));
+  const handovers=admin()?db.handovers:db.handovers.filter(h=>ownIds.has(h.collectorId));
   return `<h2>Cash handovers</h2><div class="grid">
     ${visible.map(u=>metric(`${u.name}: cash held`,money(cashHeld(u.id)))).join("")}
     </div>
@@ -1213,7 +1215,7 @@ function cashView() {
       </tr>`))}
     <h3>Shifts</h3>
     ${table(["Collector","Started","Ended","Status"],
-      db.shifts.filter(s=>admin() || s.userId===userId).map(s=>`<tr>
+      db.shifts.filter(s=>admin() || ownIds.has(s.userId)).map(s=>`<tr>
         <td>${esc(userName(s.userId))}</td><td>${esc(s.startedAt)}</td>
         <td>${esc(s.endedAt || "")}</td><td>${s.endedAt?"Closed":"Open"}</td></tr>`))}
     </div>`;
