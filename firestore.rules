@@ -52,6 +52,9 @@ service cloud.firestore {
         && get(invitePath).data.role == request.resource.data.role
         && request.resource.data.active == true;
     }
+    function legacyStaffId() {
+      return get(publicProfile(request.auth.uid)).data.legacyId;
+    }
     function activeShift(shiftId) {
       return shiftId is string
         && exists(/databases/$(database)/documents/shifts/$(shiftId))
@@ -61,10 +64,11 @@ service cloud.firestore {
 
     // staffPublic must not contain email or mobile fields.
     match /staffPublic/{uid} {
-      allow get, list: if canUseTracker();
+      allow list: if canUseTracker();
+      allow get: if canUseTracker() || (signedIn() && uid == request.auth.uid);
       allow create: if isAdmin()
         || (validSelfProfile(uid)
-          && request.resource.data.keys().hasOnly(["id", "name", "role", "active"])
+          && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"])
           && request.resource.data.id == uid);
       allow update, delete: if isAdmin();
     }
@@ -119,7 +123,7 @@ service cloud.firestore {
     }
     match /handovers/{id} {
       allow read: if isAdmin() || (isCollector()
-        && resource.data.collectorId == request.auth.uid);
+        && resource.data.collectorId in [request.auth.uid, legacyStaffId()]);
       allow create: if isCollector()
         && request.resource.data.collectorId == request.auth.uid
         && request.resource.data.status == "Pending"
@@ -135,7 +139,7 @@ service cloud.firestore {
     }
     match /shifts/{id} {
       allow read: if isAdmin() || (isCollector()
-        && resource.data.userId == request.auth.uid);
+        && resource.data.userId in [request.auth.uid, legacyStaffId()]);
       allow create: if isCollector()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.endedAt == null;
@@ -145,6 +149,10 @@ service cloud.firestore {
         && request.resource.data.endedAt is string
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["endedAt"]);
       allow delete: if false;
+    }
+    match /migrationMeta/{id} {
+      allow get: if canUseTracker();
+      allow list, create, update, delete: if false;
     }
     match /audit/{id} {
       allow read: if isAdmin();
