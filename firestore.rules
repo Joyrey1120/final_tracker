@@ -76,7 +76,13 @@ service cloud.firestore {
         || (validSelfProfile(uid)
           && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"])
           && request.resource.data.id == uid);
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+          && request.auth.token.email == "dictomesagarino@gmail.com"
+          && resource.data.active == true
+          && request.resource.data.role == "admin"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["role"]));
+      allow delete: if isAdmin();
     }
     match /staffPrivate/{uid} {
       allow get: if isAdmin() || (signedIn() && request.auth.uid == uid);
