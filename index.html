@@ -433,7 +433,7 @@ function render() {
   }
   ensureBills();
   const pages=["Dashboard","Clients","Payments","Expenses","Calendar","Cash","Reminders"];
-  if (admin()) pages.push("Plans","Reports");
+  if (admin()) pages.push("Plans","Staff","Reports");
   if (!pages.includes(page)) page="Dashboard";
   $("nav").innerHTML=pages.map(p=>`<button class="${page===p?"active":""}"
     onclick="go('${p}')">${p}</button>`).join("");
@@ -1149,7 +1149,7 @@ function planForm(id="") {
   });
 }
 function staffView() {
-  return `<h2>Pre-approved staff</h2><div class="toolbar">
+  return `<h2>Staff access roster</h2><p class="muted">Pre-approved staff profiles only. Adding a profile does not create a Firebase login or grant access. Individual role-secured staff accounts are not enabled yet.</p><div class="toolbar">
     <button class="primary" onclick="staffForm()">Add staff account</button></div>
     <div class="card">${table(["Name","Email","Mobile","Role"],
       db.users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
