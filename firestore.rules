@@ -68,6 +68,11 @@ service cloud.firestore {
       allow list: if canUseTracker();
       allow get: if canUseTracker() || (signedIn() && uid == request.auth.uid);
       allow create: if isAdmin()
+        || (signedIn() && uid == request.auth.uid
+          && request.auth.token.email == "dictomesagarinojoyrey@gmail.com"
+          && request.resource.data.role == "admin"
+          && request.resource.data.active == true
+          && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"]))
         || (validSelfProfile(uid)
           && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"])
           && request.resource.data.id == uid);
@@ -77,6 +82,10 @@ service cloud.firestore {
       allow get: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow list: if isAdmin();
       allow create: if isAdmin()
+        || (signedIn() && uid == request.auth.uid
+          && request.auth.token.email == "dictomesagarinojoyrey@gmail.com"
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.keys().hasOnly(["email", "mobile"]))
         || (validSelfProfile(uid)
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.keys().hasOnly(["email", "mobile"]));
