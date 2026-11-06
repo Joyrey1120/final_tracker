@@ -770,20 +770,15 @@ function openForm(title,content,handler) {
   };
   $("modal").showModal();
 }
-function suggestClientAccount(address) {
-  const input=$("clientAccount");
-  if (!input || input.dataset.manual==="true") return;
-  input.value=nextClientAccount(address);
-}
 function clientForm(id="") {
   requireAdmin();
   const c=db.clients.find(c=>c.id===id);
   const s=c?.schedules.at(-1);
   openForm(c?"Edit client":"Add client",`
     ${field("Name *","name",c?.name || "","text","required")}
-    <label>Address<input name="address" value="${esc(c?.address || "")}" oninput="suggestClientAccount(this.value)"></label>
+    <label>Address<input name="address" value="${esc(c?.address || "")}" ${c?"":"required"}></label>
     ${field("Phone number","phone",c?.phone || "","tel")}
-    <label>Account number<input id="clientAccount" name="account" value="${esc(c?.account || nextClientAccount(c?.address || ""))}" oninput="this.dataset.manual=1" ${c?.account?"data-manual=true":""}></label>
+    ${c?`<p>Account number: <strong>${esc(c.account || "Not set")}</strong></p>`:`<p class="muted">Account number will be assigned automatically when you save this client.</p>`}
     <label>Choose a saved plan
       <select onchange="fillPlan(this.value)">
         <option value="">Custom / leave blank</option>
@@ -805,15 +800,17 @@ function clientForm(id="") {
     requireAdmin();
     const name=f.get("name").trim();
     if (!name) throw Error("Client name is required.");
-    const account=f.get("account").trim();
+    const address=f.get("address").trim();
+    const account=c?(c.account||nextClientAccount(address)):nextClientAccount(address);
+    if (!account) throw Error("Enter an address with at least three letters so an account number can be generated.");
     if (account && db.clients.some(x=>x.account===account && x.id!==id))
-      throw Error("That account number already exists.");
+      throw Error("The generated account number already exists. Try again.");
     const fee=cents(f.get("fee"),true);
     const due=f.get("due")===""?null:Number(f.get("due"));
     if (due!==null && (!Number.isInteger(due)||due<1||due>31))
       throw Error("Due day must be 1–31.");
     const profile={
-      name,address:f.get("address").trim(),phone:f.get("phone").trim(),account
+      name,address,phone:f.get("phone").trim(),account
     };
     const schedule={plan:f.get("plan").trim(),fee,due};
     if (c) {
