@@ -387,6 +387,7 @@ function save() {
         batch.set(dbCloud.collection("expenseSettings").doc("labels"),{labels:db.labels||[]});
         writes++;
       }
+      if (writes>450) throw Error("This change includes more than 450 records. Split it into smaller saves and try again.");
       if (writes) await batch.commit();
       dbBaseline=cloneValue(db);
     } catch(e) {
@@ -1607,13 +1608,13 @@ auth.onAuthStateChanged(async authUser=>{
     const privateSnap=await privateRef.get();
     if (!privateSnap.exists)
       await privateRef.set({email,mobile:invite?.mobile||""});
-    if (!publicProfile.legacyId && invite?.legacyId) {
-      publicProfile.legacyId=invite.legacyId;
-      if (isAdminEmail(email)) await publicRef.update({legacyId:invite.legacyId});
-    }
     if (isAdminEmail(email) && publicProfile.role!=="admin") {
       await publicRef.update({role:"admin"});
       publicProfile.role="admin";
+    }
+    if (!publicProfile.legacyId && invite?.legacyId) {
+      publicProfile.legacyId=invite.legacyId;
+      if (isAdminEmail(email)) await publicRef.update({legacyId:invite.legacyId});
     }
     if (!["admin","collector"].includes(publicProfile.role))
       throw Error("This account has an unsupported role.");
