@@ -112,7 +112,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 
 <div class="banner" id="securityBanner">
   <strong>SECURE OWNER ACCESS:</strong>
-  Sign in with the authorized administrator account. Staff access remains disabled until individual authenticated staff accounts and role-specific database permissions are deployed.
+  Sign in with an authorized administrator account. Collector access remains disabled until business records are separated and role-specific database permissions are deployed.
 </div>
 
 <nav id="nav"></nav>
@@ -411,14 +411,14 @@ function render() {
   if (!signedInUser || !admin() || !user()) {
     $("nav").innerHTML="";
     $("main").innerHTML=`<div class="card"><h2>Administrator sign in</h2>
-      <p>Use the authorized owner email address to access the tracker.</p>
+      <p>Use an authorized administrator email address to access the tracker.</p>
       <form id="loginForm">
         <label>Email address<input name="email" type="email" autocomplete="username" required></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
         <div class="toolbar"><button class="primary" type="submit">Sign in</button>
         <button type="button" id="resetPassword">Send password reset</button></div>
       </form>
-      <p class="muted">Only the authorized administrator can sign in in this release. Collector access is intentionally unavailable until individual staff permissions are implemented.</p>
+      <p class="muted">Only the owner and explicitly authorized administrator can sign in in this release. Collector access remains unavailable until individual staff permissions are implemented.</p>
       <p id="loginError" role="alert"></p></div>`;
     $("loginForm").onsubmit=async event=>{
       event.preventDefault();
@@ -1420,7 +1420,7 @@ auth.onAuthStateChanged(async authUser=>{
     $("logoutButton").hidden=false;
     $("signedInAs").textContent=authUser.email;
     $("main").innerHTML=`<div class="card"><h2>Verify your administrator email</h2>
-      <p>Firebase requires the owner email to be verified before the tracker can access business records.</p>
+      <p>Firebase requires your administrator email to be verified before the tracker can access business records.</p>
       <div class="toolbar"><button class="primary" id="sendVerification">Send verification email</button>
       <button id="checkVerification">I have verified — check again</button></div>
       <p id="verificationMessage" role="status"></p></div>`;
