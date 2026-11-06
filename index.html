@@ -188,6 +188,7 @@ const sum = rows => rows.reduce((total,row)=>total+row.amount,0);
 let db;
 let dbBaseline = {};
 let collectionsMode = false;
+let authRole = null;
 const TRACKER_COLLECTIONS = [
   "plans","clients","invoices","payments","reversals","expenses",
   "handovers","shifts","audit"
@@ -402,7 +403,7 @@ let clientQuery = "";
 
 const user = () => db?.users?.find(u=>u.id===userId);
 const isAdminEmail = email => ADMIN_EMAILS.has((email||"").toLowerCase());
-const admin = () => !!signedInUser && signedInUser.emailVerified===true && user()?.role==="admin" && user()?.active!==false;
+const admin = () => !!signedInUser && signedInUser.emailVerified===true && (authRole==="admin" || user()?.role==="admin") && user()?.active!==false;
 
 function requireUser() {
   if (!signedInUser || !user() || user()?.active===false) throw Error("Your staff account is not active.");
@@ -537,9 +538,9 @@ function userName(id) {
 function render() {
   $("logoutButton").hidden=!signedInUser;
   $("signedInAs").textContent=signedInUser ? signedInUser.email : "";
-  if (!signedInUser || !admin() || !user()) {
+  if (!signedInUser || !user()) {
     $("nav").innerHTML="";
-    $("main").innerHTML=`<div class="card"><h2>Administrator sign in</h2>
+    $("main").innerHTML=`<div class="card"><h2>Staff sign in</h2>
       <p>Use an authorized administrator email address to access the tracker.</p>
       <form id="loginForm">
         <label>Email address<input name="email" type="email" autocomplete="username" required></label>
@@ -565,7 +566,7 @@ function render() {
     };
     return;
   }
-  ensureBills();
+  if (admin()) ensureBills();
   const pages=["Dashboard","Clients","Payments","Expenses","Calendar","Cash","Reminders"];
   if (admin()) pages.push("Plans","Staff","Reports");
   if (!pages.includes(page)) page="Dashboard";
@@ -1538,21 +1539,13 @@ window.addEventListener("beforeunload",event=>{
 auth.onAuthStateChanged(async authUser=>{
   signedInUser=authUser;
   userId=null;
+  authRole=null;
   if (!authUser) { render(); return; }
-  if (!isAdminEmail(authUser.email)) {
-    await auth.signOut();
-    render();
-    return;
-  }
   if (!authUser.emailVerified) {
     $("nav").innerHTML="";
     $("logoutButton").hidden=false;
     $("signedInAs").textContent=authUser.email;
-    $("main").innerHTML=`<div class="card"><h2>Verify your administrator email</h2>
-      <p>Firebase requires your administrator email to be verified before the tracker can access business records.</p>
-      <div class="toolbar"><button class="primary" id="sendVerification">Send verification email</button>
-      <button id="checkVerification">I have verified — check again</button></div>
-      <p id="verificationMessage" role="status"></p></div>`;
+    $("main").innerHTML="<div class='card'><h2>Verify your email</h2><p>Firebase requires a verified email before the tracker can load business records.</p><div class='toolbar'><button class='primary' id='sendVerification'>Send verification email</button><button id='checkVerification'>I have verified — check again</button></div><p id='verificationMessage' role='status'></p></div>";
     $("sendVerification").onclick=async()=>{
       try { await authUser.sendEmailVerification(); $("verificationMessage").textContent="Verification email sent. Check your inbox and spam folder."; }
       catch(error){$("verificationMessage").textContent="Could not send verification email: "+error.message;}
@@ -1566,28 +1559,53 @@ auth.onAuthStateChanged(async authUser=>{
     return;
   }
   try {
-    await loadDb();
-    if (!db.users) db.users=[];
-    const accountEmail=(authUser.email||"").toLowerCase();
-    let account=db.users.find(u=>(u.email||"").toLowerCase()===accountEmail);
-    if (!account) {
-      account={
-        id:authUser.uid,
-        name:accountEmail===OWNER_EMAIL?"Administrator":accountEmail.split("@")[0],
-        email:accountEmail,mobile:"",role:"admin"
-      };
-      db.users.push(account);
-      await save();
-    } else if (isAdminEmail(accountEmail) && account.role!=="admin") {
-      // This specific email was authorized by the repository owner as an admin.
-      account.role="admin";
-      await save();
+    const uid=authUser.uid;
+    const email=(authUser.email||"").trim().toLowerCase();
+    const publicRef=dbCloud.collection("staffPublic").doc(uid);
+    let publicSnap=await publicRef.get();
+    let publicProfile=publicSnap.exists?publicSnap.data():null;
+    if (!publicProfile) {
+      let invite=null;
+      if (!isAdminEmail(email)) {
+        const inviteSnap=await dbCloud.collection("staffInvites").doc(email).get();
+        if (inviteSnap.exists && inviteSnap.data().active===true) invite=inviteSnap.data();
+        if (!invite) throw Error("This email has not been approved for tracker access. Ask an administrator to add it to Staff.");
+      }
+      const role=isAdminEmail(email)?"admin":invite.role;
+      const name=isAdminEmail(email)?"Administrator":(invite.name||email.split("@")[0]);
+      const privateRef=dbCloud.collection("staffPrivate").doc(uid);
+      await publicRef.set({id:uid,name,role,active:true});
+      await privateRef.set({email,mobile:invite?.mobile||""});
+      publicProfile={id:uid,name,role,active:true};
     }
-    userId=account.id;
+    if (publicProfile.active===false) throw Error("This staff account is inactive. Ask an administrator for access.");
+    if (!["admin","collector"].includes(publicProfile.role))
+      throw Error("This account has an unsupported role.");
+    authRole=publicProfile.role;
+    userId=uid;
+    await loadDb();
+    if (!collectionsMode) {
+      if (authRole!=="admin") throw Error("Collector access is waiting for the approved collection-based data migration.");
+      let legacyAccount=db.users.find(u=>(u.email||"").toLowerCase()===email);
+      if (!legacyAccount) {
+        legacyAccount={id:uid,name:publicProfile.name||"Administrator",email,mobile:"",role:"admin"};
+        db.users.push(legacyAccount);
+        await save();
+      } else if (legacyAccount.role!=="admin") {
+        legacyAccount.role="admin";
+        await save();
+      }
+      userId=legacyAccount.id;
+    } else if (!db.users.some(u=>u.id===uid)) {
+      throw Error("The staff profile is not available in the migrated tracker data.");
+    }
     render();
   } catch(e) {
     console.error("Failed to load tracker data:",e);
-    $("main").innerHTML="<div class='card'><h2>Unable to load tracker data</h2><p>Check Firebase Authentication and Firestore security rules. Existing data has not been overwritten.</p><p>"+esc(e.message)+"</p></div>";
+    $("nav").innerHTML="";
+    $("logoutButton").hidden=false;
+    $("signedInAs").textContent=authUser.email;
+    $("main").innerHTML="<div class='card'><h2>Unable to open tracker</h2><p>"+esc(e.message)+"</p><p>Contact the administrator if your account should have access.</p></div>";
   }
 });
 </script>
