@@ -914,11 +914,9 @@ function calendarView() {
     <h2>Calendar</h2>
 
     <div class="toolbar">
-      <input
-        type="month"
-        value="${calendarMonth}"
-        onchange="setMonth(this.value)"
-      >
+      <button onclick="shiftCalendarMonth(-1)" ${calendarMonth<="2026-01"?"disabled":""}>Previous</button>
+      <input type="month" min="2026-01" max="2050-12" value="${calendarMonth}" onchange="setMonth(this.value)">
+      <button onclick="shiftCalendarMonth(1)" ${calendarMonth>="2050-12"?"disabled":""}>Next</button>
       ${isFuture
         ? '<span class="badge warn">Future billing forecast</span>'
         : ""}
