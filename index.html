@@ -189,6 +189,7 @@ let db;
 let dbBaseline = {};
 let collectionsMode = false;
 let authRole = null;
+let myLegacyStaffId = null;
 const TRACKER_COLLECTIONS = [
   "plans","clients","invoices","payments","reversals","expenses",
   "handovers","shifts","audit"
@@ -243,11 +244,11 @@ async function loadDb() {
       if (name==="plans" && !admin()) { db[name]=[]; continue; }
       if (name==="audit" && !admin()) { db[name]=[]; continue; }
       if (name==="shifts" && !admin()) {
-        db[name]=await read(name,ref=>ref.where("userId","==",auth.currentUser.uid));
+        db[name]=await read(name,ref=>ref.where("userId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
         continue;
       }
       if (name==="handovers" && !admin()) {
-        db[name]=await read(name,ref=>ref.where("collectorId","==",auth.currentUser.uid));
+        db[name]=await read(name,ref=>ref.where("collectorId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
         continue;
       }
       db[name]=await read(name);
@@ -355,7 +356,8 @@ function save() {
           const old=oldById.get(id);
           if (!old || !sameValue(old,row)) {
             batch.set(dbCloud.collection("staffPublic").doc(id),{
-              id,name:row.name||"",role:row.role,active:row.active!==false
+              id,name:row.name||"",role:row.role,active:row.active!==false,
+              legacyId:row.legacyId||""
             });
             batch.set(dbCloud.collection("staffPrivate").doc(id),{
               email:(row.email||"").toLowerCase(),mobile:row.mobile||""
@@ -439,7 +441,9 @@ async function commit(action,entity) {
 }
 
 function activeShift(id=userId) {
-  return db.shifts.find(s=>s.userId===id && !s.endedAt);
+  const staff=db.users?.find(u=>u.id===id);
+  const ids=new Set([id,staff?.legacyId].filter(Boolean));
+  return db.shifts.find(s=>ids.has(s.userId) && !s.endedAt);
 }
 function reversed(paymentId) {
   return db.reversals.some(r=>r.paymentId===paymentId);
@@ -494,14 +498,18 @@ function overdue(clientId,day=today()) {
     .filter(i=>i.due<day).reduce((total,i)=>total+i.remaining,0);
 }
 function cashHeld(id) {
+  const staff=db.users?.find(u=>u.id===id);
+  const ids=new Set([id,staff?.legacyId].filter(Boolean));
   const cash=sum(db.payments.filter(p=>
-    p.recorderId===id && p.method==="Cash" && !reversed(p.id)));
+    ids.has(p.recorderId) && p.method==="Cash" && !reversed(p.id)));
   const handed=sum(db.handovers.filter(h=>
-    h.collectorId===id && h.status==="Confirmed"));
+    ids.has(h.collectorId) && h.status==="Confirmed"));
   return cash-handed;
 }
 function pendingHandovers(id) {
-  return db.handovers.filter(h=>h.collectorId===id && h.status==="Pending");
+  const staff=db.users?.find(u=>u.id===id);
+  const ids=new Set([id,staff?.legacyId].filter(Boolean));
+  return db.handovers.filter(h=>ids.has(h.collectorId) && h.status==="Pending");
 }
 function availableCash(id) {
   return cashHeld(id)-sum(pendingHandovers(id));
@@ -1574,14 +1582,15 @@ auth.onAuthStateChanged(async authUser=>{
       const role=isAdminEmail(email)?"admin":invite.role;
       const name=isAdminEmail(email)?"Administrator":(invite.name||email.split("@")[0]);
       const privateRef=dbCloud.collection("staffPrivate").doc(uid);
-      await publicRef.set({id:uid,name,role,active:true});
+      await publicRef.set({id:uid,name,role,active:true,legacyId:invite?.legacyId||""});
       await privateRef.set({email,mobile:invite?.mobile||""});
-      publicProfile={id:uid,name,role,active:true};
+      publicProfile={id:uid,name,role,active:true,legacyId:invite?.legacyId||""};
     }
     if (publicProfile.active===false) throw Error("This staff account is inactive. Ask an administrator for access.");
     if (!["admin","collector"].includes(publicProfile.role))
       throw Error("This account has an unsupported role.");
     authRole=publicProfile.role;
+    myLegacyStaffId=publicProfile.legacyId||null;
     userId=uid;
     await loadDb();
     if (!collectionsMode) {
