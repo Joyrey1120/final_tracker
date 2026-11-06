@@ -642,11 +642,12 @@ function paymentsView() {
 }
 function paymentForm(clientId="") {
   requireUser();
+  if (clientId && db.clients.find(c=>c.id===clientId)?.active===false) return notify("This client is inactive. Reactivate the client before recording a payment.");
   if (!db.clients.length) return notify("The admin must add a client first.");
   if (!admin() && !activeShift()) return notify("Start your shift before recording payments.");
   openForm("Record payment",`
     <label>Client<select name="clientId" required>
-      ${db.clients.map(c=>`<option value="${c.id}" ${c.id===clientId?"selected":""}>
+      ${db.clients.filter(c=>c.active!==false).map(c=>`<option value="${c.id}" ${c.id===clientId?"selected":""}>
         ${esc(c.name)} — ${esc(c.account)} — balance ${money(balance(c.id))}
       </option>`).join("")}
     </select></label>
@@ -660,6 +661,8 @@ function paymentForm(clientId="") {
   `,f=>{
     requireUser();
     if (!admin() && !activeShift()) throw Error("Start a shift first.");
+    const selectedClient=db.clients.find(c=>c.id===f.get("clientId"));
+    if (!selectedClient || selectedClient.active===false) throw Error("Choose an active client before recording payment.");
     const amount=cents(f.get("amount"));
     if (amount<=0) throw Error("Payment must be greater than zero.");
     const id=uuid();
