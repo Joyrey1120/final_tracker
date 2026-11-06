@@ -121,7 +121,8 @@ service cloud.firestore {
           && request.resource.data.amount > 0
           && request.resource.data.method in ["Cash", "GCash"]
           && activeShift(request.resource.data.shiftId)
-          && exists(/databases/$(database)/documents/clients/$(request.resource.data.clientId)));
+          && exists(/databases/$(database)/documents/clients/$(request.resource.data.clientId))
+          && get(/databases/$(database)/documents/clients/$(request.resource.data.clientId)).data.active != false);
       allow update, delete: if false;
     }
     match /reversals/{id} {
