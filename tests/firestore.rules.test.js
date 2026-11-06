@@ -94,15 +94,18 @@ test("collectors can read tracker data but cannot modify clients, invoices, or e
 test("collectors may create payments only for active clients and their active shift",async()=>{
   const db=collector();
   await assertSucceeds(setDoc(doc(db,"payments","newPayment"),{
-    id:"newPayment",clientId:"client1",recorderId:"collectorUid",
+    id:"newPayment",receipt:"PAY-newPayment",clientId:"client1",recorderId:"collectorUid",
+    recorderEmail:collectorEmail,reference:"",at:"2026-11-06T08:10:00Z",
     amount:25000,method:"Cash",date:"2026-11-06",shiftId:"shift1"
   }));
   await assertFails(setDoc(doc(db,"payments","inactivePayment"),{
-    id:"inactivePayment",clientId:"inactive",recorderId:"collectorUid",
+    id:"inactivePayment",receipt:"PAY-inactivePayment",clientId:"inactive",recorderId:"collectorUid",
+    recorderEmail:collectorEmail,reference:"",at:"2026-11-06T08:10:00Z",
     amount:25000,method:"Cash",date:"2026-11-06",shiftId:"shift1"
   }));
   await assertFails(setDoc(doc(db,"payments","noShift"),{
-    id:"noShift",clientId:"client1",recorderId:"collectorUid",
+    id:"noShift",receipt:"PAY-noShift",clientId:"client1",recorderId:"collectorUid",
+    recorderEmail:collectorEmail,reference:"",at:"2026-11-06T08:10:00Z",
     amount:25000,method:"Cash",date:"2026-11-06",shiftId:"missing"
   }));
   await assertFails(deleteDoc(doc(db,"payments","existing")));
