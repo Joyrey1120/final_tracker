@@ -998,10 +998,20 @@ function calendarView() {
   `;
 }function selectDay(day) { selectedDay=day; render(); }
 function setMonth(month) {
-  if (!month) return;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month || "")) return;
+  const year=Number(month.slice(0,4));
+  if(year<2026 || year>2050) return notify("Calendar supports 2026 through 2050.");
   calendarMonth=month;
-  selectedDay=`${month}-01`;
+  selectedDay=month+"-01";
   render();
+}
+function shiftCalendarMonth(delta) {
+  const parts=calendarMonth.split("-").map(Number);
+  const d=new Date(Date.UTC(parts[0],parts[1]-1+delta,1));
+  const target=d.toISOString().slice(0,7);
+  const year=Number(target.slice(0,4));
+  if(year<2026 || year>2050) return;
+  setMonth(target);
 }
 
 function cashView() {
