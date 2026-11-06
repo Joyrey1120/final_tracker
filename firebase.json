@@ -9,8 +9,20 @@
       "firestore.rules",
       "README.md",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "scripts/**",
+      "tests/**",
+      "MIGRATION_PLAN.md",
+      "backups/**"
     ],
     "cleanUrls": true
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": false
+    }
   }
 }

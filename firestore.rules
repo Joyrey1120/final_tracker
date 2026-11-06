@@ -1,17 +1,258 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Temporary production-safe owner-only access for the existing single-document
-    // schema. Do not widen this rule for collectors: the app currently stores all
-    // business records and roles in one document, so fine-grained staff access
-    // cannot be enforced safely at this path.
+    // Transitional access for the current single-document application.
+    // Only the existing owner and the explicitly approved second admin can use it.
+    // Do not add collector identities here: this document contains every business
+    // record, so per-feature collector permissions cannot be enforced at this path.
     match /prototypes/isp-tracker {
-      allow read, write: if request.auth != null
-        && request.auth.token.email == "sagarinojoyrey@gmail.com"
-        && request.auth.token.email_verified == true;
+      allow read: if request.auth != null
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email == "sagarinojoyrey@gmail.com"
+          || (request.auth.token.email == "dictomesagarino@gmail.com"
+            && exists(/databases/$(database)/documents/staffPublic/$(request.auth.uid))
+            && get(/databases/$(database)/documents/staffPublic/$(request.auth.uid)).data.role == "admin"
+            && get(/databases/$(database)/documents/staffPublic/$(request.auth.uid)).data.active == true)
+        );
+      allow write: if !exists(/databases/$(database)/documents/migrationMeta/collection-v1)
+        && request.auth != null
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email == "sagarinojoyrey@gmail.com"
+          || (request.auth.token.email == "dictomesagarino@gmail.com"
+            && exists(/databases/$(database)/documents/staffPublic/$(request.auth.uid))
+            && get(/databases/$(database)/documents/staffPublic/$(request.auth.uid)).data.role == "admin"
+            && get(/databases/$(database)/documents/staffPublic/$(request.auth.uid)).data.active == true)
+        );
     }
 
-    // Deny every other document until a collection-based schema is deployed.
+    // Role-scoped collections used by the staged data migration.
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function shortString(data, key, max) {
+      return key in data && data[key] is string && data[key].size() <= max;
+    }
+    function validTimestamp(value) {
+      return value is string && value.size() <= 40
+        && value.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$");
+    }
+    function validPayment(data, id) {
+      return data.keys().hasOnly([
+          "id", "receipt", "clientId", "amount", "method", "reference", "date",
+          "at", "recorderId", "recorderEmail", "shiftId"
+        ])
+        && data.keys().hasAll([
+          "id", "clientId", "amount", "method", "date", "at",
+          "recorderId", "recorderEmail", "shiftId"
+        ])
+        && data.id == id && shortString(data, "id", 128)
+        && shortString(data, "clientId", 128)
+        && data.amount is int && data.amount > 0 && data.amount <= 100000000000
+        && data.method in ["Cash", "GCash"]
+        && shortString(data, "date", 10)
+        && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$")
+        && validTimestamp(data.at)
+        && data.recorderId == request.auth.uid
+        && shortString(data, "recorderId", 128)
+        && data.recorderEmail == request.auth.token.email
+        && shortString(data, "recorderEmail", 254)
+        && shortString(data, "shiftId", 128)
+        && (!("receipt" in data) || shortString(data, "receipt", 128))
+        && (!("reference" in data) || shortString(data, "reference", 256));
+    }
+    function validHandover(data, id) {
+      return data.keys().hasOnly([
+          "id", "collectorId", "amount", "note", "date", "at", "status", "shiftId"
+        ])
+        && data.keys().hasAll([
+          "id", "collectorId", "amount", "note", "date", "at", "status", "shiftId"
+        ])
+        && data.id == id && shortString(data, "id", 128)
+        && data.collectorId == request.auth.uid
+        && shortString(data, "collectorId", 128)
+        && data.amount is int && data.amount > 0 && data.amount <= 100000000000
+        && shortString(data, "note", 500)
+        && shortString(data, "date", 10)
+        && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$")
+        && validTimestamp(data.at)
+        && data.status == "Pending"
+        && shortString(data, "shiftId", 128);
+    }
+    function validShift(data, id) {
+      return data.keys().hasOnly(["id", "userId", "startedAt", "endedAt"])
+        && data.keys().hasAll(["id", "userId", "startedAt", "endedAt"])
+        && data.id == id && shortString(data, "id", 128)
+        && data.userId == request.auth.uid && shortString(data, "userId", 128)
+        && validTimestamp(data.startedAt);
+    }
+    function bootstrapAdmin() {
+      return signedIn() && request.auth.token.email == "sagarinojoyrey@gmail.com";
+    }
+    function publicProfile(uid) {
+      return /databases/$(database)/documents/staffPublic/$(uid);
+    }
+    function hasActiveProfile(uid) {
+      return exists(publicProfile(uid))
+        && get(publicProfile(uid)).data.active == true;
+    }
+    function isAdmin() {
+      return bootstrapAdmin()
+        || (signedIn() && hasActiveProfile(request.auth.uid)
+          && get(publicProfile(request.auth.uid)).data.role == "admin");
+    }
+    function isCollector() {
+      return signedIn() && hasActiveProfile(request.auth.uid)
+        && get(publicProfile(request.auth.uid)).data.role == "collector";
+    }
+    function canUseTracker() {
+      return isAdmin() || isCollector();
+    }
+    function validSelfInvite(uid) {
+      let invitePath = /databases/$(database)/documents/staffInvites/$(request.auth.token.email);
+      return signedIn() && uid == request.auth.uid
+        && exists(invitePath)
+        && get(invitePath).data.active == true
+        && get(invitePath).data.email == request.auth.token.email;
+    }
+    function validSelfProfile(uid) {
+      let invitePath = /databases/$(database)/documents/staffInvites/$(request.auth.token.email);
+      return validSelfInvite(uid)
+        && get(invitePath).data.role == request.resource.data.role
+        && request.resource.data.legacyId == get(invitePath).data.legacyId
+        && request.resource.data.active == true;
+    }
+    function legacyStaffId() {
+      return get(publicProfile(request.auth.uid)).data.legacyId;
+    }
+    function activeShift(shiftId) {
+      return shiftId is string
+        && exists(/databases/$(database)/documents/shifts/$(shiftId))
+        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId in [request.auth.uid, legacyStaffId()]
+        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.endedAt == null;
+    }
+
+    // staffPublic must not contain email or mobile fields.
+    match /staffPublic/{uid} {
+      allow list: if canUseTracker();
+      allow get: if canUseTracker() || (signedIn() && uid == request.auth.uid);
+      allow create: if isAdmin()
+        || (signedIn() && uid == request.auth.uid
+          && request.auth.token.email == "dictomesagarino@gmail.com"
+          && request.resource.data.role == "admin"
+          && request.resource.data.active == true
+          && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"]))
+        || (validSelfProfile(uid)
+          && request.resource.data.keys().hasOnly(["id", "name", "role", "active", "legacyId"])
+          && request.resource.data.id == uid);
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+          && request.auth.token.email == "dictomesagarino@gmail.com"
+          && resource.data.active == true
+          && request.resource.data.role == "admin"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["role"]));
+      allow delete: if isAdmin();
+    }
+    match /staffPrivate/{uid} {
+      allow get: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        || (signedIn() && uid == request.auth.uid
+          && request.auth.token.email == "dictomesagarino@gmail.com"
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.keys().hasOnly(["email", "mobile"]))
+        || (validSelfInvite(uid)
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.keys().hasOnly(["email", "mobile"]));
+      allow update, delete: if isAdmin();
+    }
+    match /staffInvites/{email} {
+      allow get: if isAdmin() || (signedIn() && request.auth.token.email == email);
+      allow list, create, update, delete: if isAdmin();
+    }
+    match /clients/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /invoices/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /plans/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /payments/{id} {
+      allow read: if canUseTracker();
+      allow create: if isAdmin()
+        || (isCollector()
+          && validPayment(request.resource.data, id)
+          && activeShift(request.resource.data.shiftId)
+          && exists(/databases/$(database)/documents/clients/$(request.resource.data.clientId))
+          && get(/databases/$(database)/documents/clients/$(request.resource.data.clientId)).data.active != false);
+      allow update, delete: if false;
+    }
+    match /reversals/{id} {
+      allow read: if canUseTracker();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+    match /expenses/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /expenseSettings/{id} {
+      allow read: if canUseTracker();
+      allow write: if isAdmin();
+    }
+    match /handovers/{id} {
+      allow read: if isAdmin() || (isCollector()
+        && resource.data.collectorId in [request.auth.uid, legacyStaffId()]);
+      allow create: if isCollector()
+        && validHandover(request.resource.data, id)
+        && activeShift(request.resource.data.shiftId);
+      allow update: if isAdmin()
+        && resource.data.status == "Pending"
+        && request.resource.data.status == "Confirmed"
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["status", "confirmedBy", "confirmedAt"]);
+      allow delete: if false;
+    }
+    match /shifts/{id} {
+      allow read: if isAdmin() || (isCollector()
+        && resource.data.userId in [request.auth.uid, legacyStaffId()]);
+      allow create: if isCollector()
+        && validShift(request.resource.data, id)
+        && request.resource.data.endedAt == null;
+      allow update: if isCollector()
+        && request.resource.data.keys().hasOnly(["id", "userId", "startedAt", "endedAt"])
+        && request.resource.data.keys().hasAll(["id", "userId", "startedAt", "endedAt"])
+        && request.resource.data.id == id
+        && request.resource.data.userId == resource.data.userId
+        && shortString(request.resource.data, "userId", 128)
+        && request.resource.data.startedAt == resource.data.startedAt
+        && validTimestamp(request.resource.data.startedAt)
+        && resource.data.userId in [request.auth.uid, legacyStaffId()]
+        && resource.data.endedAt == null
+        && validTimestamp(request.resource.data.endedAt)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["endedAt"]);
+      allow delete: if false;
+    }
+    match /migrationMeta/{id} {
+      allow get: if canUseTracker();
+      allow list, create, update, delete: if false;
+    }
+    match /audit/{id} {
+      allow read: if isAdmin();
+      allow create: if canUseTracker()
+        && request.resource.data.keys().hasOnly(["id", "at", "actor", "action", "entity"])
+        && request.resource.data.id == id
+        && request.resource.data.actor == request.auth.token.email;
+      allow update, delete: if false;
+    }
+
+    // Deny every other document until the collection-based migration is reviewed
+    // and deployed as a coordinated application + rules release.
     match /{document=**} {
       allow read, write: if false;
     }

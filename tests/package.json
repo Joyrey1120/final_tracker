@@ -1,0 +1,12 @@
+{
+  "name": "final-tracker-rules-tests",
+  "private": true,
+  "scripts": {
+    "test": "firebase --config ../firebase.json emulators:exec --only firestore --project demo-isp-tracker-rules \"node --test\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase": "^13.1.0",
+    "firebase-tools": "^15.35.0"
+  }
+}

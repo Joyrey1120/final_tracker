@@ -112,7 +112,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
 
 <div class="banner" id="securityBanner">
   <strong>SECURE OWNER ACCESS:</strong>
-  Sign in with the authorized administrator account. Staff access remains disabled until individual authenticated staff accounts and role-specific database permissions are deployed.
+  Sign in with an approved Firebase account. Administrator and collector permissions are enforced by Firestore.
 </div>
 
 <nav id="nav"></nav>
@@ -137,7 +137,11 @@ label input,label select,label textarea { width:100%; margin-top:5px }
     const auth = firebase.auth();
     const dbCloud = firebase.firestore();
     const docRef = dbCloud.collection("prototypes").doc("isp-tracker");
-    const ADMIN_EMAIL = "sagarinojoyrey@gmail.com";
+    const OWNER_EMAIL = "sagarinojoyrey@gmail.com";
+    const ADMIN_EMAILS = new Set([
+      OWNER_EMAIL,
+      "dictomesagarino@gmail.com"
+    ]);
   </script>
   <script>
 "use strict";
@@ -182,82 +186,261 @@ const money = c => new Intl.NumberFormat("en-PH", {
 const sum = rows => rows.reduce((total,row)=>total+row.amount,0);
 
 let db;
-// load or create your shared prototype state
+let dbBaseline = {};
+let collectionsMode = false;
+let authRole = null;
+let myLegacyStaffId = null;
+const TRACKER_COLLECTIONS = [
+  "plans","clients","invoices","payments","reversals","expenses",
+  "handovers","shifts","audit"
+];
+const cloneValue = value => JSON.parse(JSON.stringify(value));
+const sortObject = value => Array.isArray(value) ? value.map(sortObject)
+  : value && typeof value==="object"
+    ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,sortObject(value[k])]))
+    : value;
+const sameValue = (a,b) => JSON.stringify(sortObject(a))===JSON.stringify(sortObject(b));
+
 async function loadDb() {
-  const snap = await docRef.get();
-  if (snap.exists) {
-    db = snap.data() || {};
-
-    // Older/manual Firestore documents may use uppercase or legacy field names.
-    // Normalize them in memory without deleting or rewriting the original fields.
-    const arrayField = (canonical, aliases = []) => {
-      const candidates = [canonical, ...aliases];
-      let value;
-      for (const key of candidates) {
-        if (Array.isArray(db[key])) { value = db[key]; break; }
+  const marker = await dbCloud.collection("migrationMeta").doc("collection-v1").get();
+  collectionsMode = marker.exists;
+  if (!collectionsMode) {
+    const snap = await docRef.get();
+    if (!snap.exists) {
+      db = {
+        _revision:0,
+        users:[{id:"admin",name:"Administrator",email:"admin@example.test",mobile:"",role:"admin"}],
+        plans:[],clients:[],invoices:[],payments:[],reversals:[],
+        expenses:[],labels:["Fuel","Cash","Rent","ISP Payment","Others"],
+        handovers:[],shifts:[],audit:[]
+      };
+      await docRef.set(db);
+    } else {
+      db = snap.data() || {};
+      const aliases = {
+        users:["USERS","user","USER"], plans:["PLANS"], clients:["CLIENTS"],
+        invoices:["INVOICES"], payments:["PAYMENTS"], reversals:["REVERSALS"],
+        expenses:["EXPENSES","EXPENCES","EXPENCE"], handovers:["HANDOVERS"],
+        shifts:["SHIFTS","SHIFT"], audit:["AUDIT"]
+      };
+      for (const [key, names] of Object.entries(aliases)) {
+        const source = [key,...names].map(name=>db[name]).find(Array.isArray) || [];
+        db[key] = source.filter(row=>row && typeof row==="object" && !Array.isArray(row));
       }
-      if (!Array.isArray(value)) value = [];
-      // Record collections must contain objects, not empty-string placeholders.
-      db[canonical] = value.filter(item =>
-        item !== null && typeof item === "object" && !Array.isArray(item)
-      );
-    };
-
-    arrayField("users", ["USERS", "user", "USER"]);
-    arrayField("plans", ["PLANS"]);
-    arrayField("clients", ["CLIENTS"]);
-    arrayField("invoices", ["INVOICES"]);
-    arrayField("payments", ["PAYMENTS"]);
-    arrayField("reversals", ["REVERSALS"]);
-    arrayField("expenses", ["EXPENSES", "EXPENCES", "EXPENCE"]);
-    arrayField("handovers", ["HANDOVERS"]);
-    arrayField("shifts", ["SHIFTS", "SHIFT"]);
-    arrayField("audit", ["AUDIT"]);
-
-    const labels = Array.isArray(db.labels) ? db.labels : [];
-    db.labels = labels.filter(label => typeof label === "string" && label.trim());
-    if (!db.labels.length) db.labels = ["Fuel","Cash","Rent","ISP Payment","Others"];
-
-    db._revision = Number(db._revision || 0);
+      db.labels = Array.isArray(db.labels)
+        ? db.labels.filter(label=>typeof label==="string" && label.trim())
+        : ["Fuel","Cash","Rent","ISP Payment","Others"];
+      if (!db.labels.length) db.labels=["Fuel","Cash","Rent","ISP Payment","Others"];
+      db._revision = Number(db._revision || 0);
+    }
   } else {
-    db = {
-      _revision:0,
-      users:[{ id:"admin", name:"Administrator", email:"admin@example.test", mobile:"", role:"admin"}],
-      plans:[], clients:[], invoices:[], payments:[], reversals:[],
-      expenses:[], labels:["Fuel","Cash","Rent","ISP Payment","Others"],
-      handovers:[], shifts:[], audit:[]
+    const read = async (name, query=null) => {
+      const ref=dbCloud.collection(name);
+      const snap=query ? await query(ref).get() : await ref.get();
+      return snap.docs.map(doc=>({id:doc.id,...doc.data()}));
     };
-    await docRef.set(db);
+    db = {};
+    for (const name of TRACKER_COLLECTIONS) {
+      if ((name==="plans" || name==="audit") && !admin()) { db[name]=[]; continue; }
+      if (name==="audit" && !admin()) { db[name]=[]; continue; }
+      if (name==="shifts" && !admin()) {
+        db[name]=await read(name,ref=>ref.where("userId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
+        continue;
+      }
+      if (name==="handovers" && !admin()) {
+        db[name]=await read(name,ref=>ref.where("collectorId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
+        continue;
+      }
+      db[name]=await read(name);
+    }
+    db.users=await read("staffPublic");
+    if (admin()) {
+      const privateUsers=await read("staffPrivate");
+      const privateById=new Map(privateUsers.map(row=>[row.id,row]));
+      db.users=db.users.map(row=>({...row,...(privateById.get(row.id)||{})}));
+      const invitations=await read("staffInvites");
+      for (const invitation of invitations) {
+        if (!db.users.some(row=>(row.email||"").toLowerCase()===invitation.email.toLowerCase())) {
+          db.users.push({id:"invite:"+invitation.id,...invitation,preapproved:true});
+        }
+      }
+    } else {
+      const own=await dbCloud.collection("staffPrivate").doc(auth.currentUser.uid).get();
+      if (own.exists) {
+        const index=db.users.findIndex(row=>row.id===auth.currentUser.uid);
+        if (index>=0) db.users[index]={...db.users[index],...own.data()};
+      }
+    }
+    const labels=await dbCloud.collection("expenseSettings").doc("labels").get();
+    db.labels=labels.exists && Array.isArray(labels.data().labels)
+      ? labels.data().labels : ["Fuel","Cash","Rent","ISP Payment","Others"];
+    db._revision=0;
   }
+  dbBaseline=cloneValue(db);
+}
+
+let cloudSyncUnsubscribers=[];
+function stopCloudSync() {
+  for (const unsubscribe of cloudSyncUnsubscribers) unsubscribe();
+  cloudSyncUnsubscribers=[];
+}
+function startCloudSync() {
+  stopCloudSync();
+  if (!collectionsMode || !auth.currentUser) return;
+  const listenRows=(name, makeQuery=null)=>{
+    let ref=dbCloud.collection(name);
+    if (makeQuery) ref=makeQuery(ref);
+    cloudSyncUnsubscribers.push(ref.onSnapshot(snapshot=>{
+      db[name]=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
+      dbBaseline[name]=cloneValue(db[name]);
+      render();
+    },error=>{
+      console.error("Cloud sync listener failed for "+name+":",error);
+      notify("Cloud sync paused for "+name+". Check your connection and reload the tracker.");
+    }));
+  };
+  for (const name of TRACKER_COLLECTIONS) {
+    if (name==="plans" && !admin()) continue;
+    if (name==="audit" && !admin()) continue;
+    if (name==="shifts" && !admin()) {
+      listenRows(name,ref=>ref.where("userId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
+      continue;
+    }
+    if (name==="handovers" && !admin()) {
+      listenRows(name,ref=>ref.where("collectorId","in",[auth.currentUser.uid,myLegacyStaffId].filter(Boolean)));
+      continue;
+    }
+    listenRows(name);
+  }
+  const labelsRef=dbCloud.collection("expenseSettings").doc("labels");
+  cloudSyncUnsubscribers.push(labelsRef.onSnapshot(snapshot=>{
+    db.labels=snapshot.exists && Array.isArray(snapshot.data().labels)
+      ? snapshot.data().labels : ["Fuel","Cash","Rent","ISP Payment","Others"];
+    dbBaseline.labels=cloneValue(db.labels);
+    render();
+  },error=>{
+    console.error("Cloud sync listener failed for expense settings:",error);
+    notify("Cloud settings sync paused. Check your connection and reload the tracker.");
+  }));
 }
 
 // Queue local writes and compare revisions so two rapid actions in this tab
 // do not race each other or silently overwrite a newer session's data.
 let saveQueue = Promise.resolve();
 function save() {
-  const task = saveQueue.then(async()=>{
+  const task=saveQueue.then(async()=>{
     try {
-      const nextRevision = await dbCloud.runTransaction(async transaction => {
-        const snap = await transaction.get(docRef);
-        const currentRevision = snap.exists ? Number(snap.data()._revision || 0) : 0;
-        if (currentRevision !== Number(db._revision || 0)) {
-          throw Error("The database changed in another session. Reload the tracker before saving again.");
-        }
-        const revision = currentRevision + 1;
-        transaction.set(docRef, {
-          ...db,
-          _revision:revision,
-          _updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      if (!collectionsMode) {
+        const nextRevision=await dbCloud.runTransaction(async transaction=>{
+          const snap=await transaction.get(docRef);
+          const currentRevision=snap.exists?Number(snap.data()._revision||0):0;
+          if (currentRevision!==Number(db._revision||0))
+            throw Error("The database changed in another session. Reload the tracker before saving again.");
+          const revision=currentRevision+1;
+          transaction.set(docRef,{...db,_revision:revision,
+            _updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+          return revision;
         });
-        return revision;
-      });
-      db._revision = nextRevision;
+        db._revision=nextRevision;
+        dbBaseline=cloneValue(db);
+        return;
+      }
+      const batch=dbCloud.batch();
+      let writes=0;
+      const persistRows=(name,oldRows,newRows,allowed)=>{
+        const oldById=new Map(oldRows.map(row=>[row.id,row]));
+        const newById=new Map(newRows.map(row=>[row.id,row]));
+        const ref=dbCloud.collection(name);
+        for (const [id,row] of newById) {
+          const old=oldById.get(id);
+          if (!old || !sameValue(old,row)) {
+            if (!allowed(row,old)) throw Error("This account cannot change "+name+".");
+            batch.set(ref.doc(id),row);
+            writes++;
+          }
+        }
+        for (const [id,row] of oldById) {
+          if (!newById.has(id)) {
+            if (!allowed(null,row)) throw Error("This account cannot delete from "+name+".");
+            batch.delete(ref.doc(id));
+            writes++;
+          }
+        }
+      };
+      for (const name of TRACKER_COLLECTIONS) {
+        const adminOnly=["plans","clients","invoices","expenses","reversals"];
+        if (adminOnly.includes(name) && !admin()) continue;
+        if (name==="shifts" && !admin()) {
+          persistRows(name,dbBaseline.shifts||[],db.shifts||[],
+            (next,old)=>!!next && !!old && old.userId===auth.currentUser.uid
+              && !old.endedAt && !!next.endedAt);
+          continue;
+        }
+        if (name==="handovers" && !admin()) {
+          persistRows(name,dbBaseline.handovers||[],db.handovers||[],
+            (next,old)=>!!next && !old && next.collectorId===auth.currentUser.uid);
+          continue;
+        }
+        if (name==="payments" && !admin()) {
+          persistRows(name,dbBaseline.payments||[],db.payments||[],
+            (next,old)=>!!next && !old && next.recorderId===auth.currentUser.uid);
+          continue;
+        }
+        if (name==="audit" && !admin()) {
+          persistRows(name,dbBaseline.audit||[],db.audit||[],
+            (next,old)=>!!next && !old && next.actor===auth.currentUser.email);
+          continue;
+        }
+        persistRows(name,dbBaseline[name]||[],db[name]||[],()=>admin());
+      }
+      const oldUsers=dbBaseline.users||[], newUsers=db.users||[];
+      if (admin()) {
+        const oldById=new Map(oldUsers.filter(u=>!u.preapproved).map(u=>[u.id,u]));
+        const newById=new Map(newUsers.filter(u=>!u.preapproved).map(u=>[u.id,u]));
+        for (const [id,row] of newById) {
+          const old=oldById.get(id);
+          if (!old || !sameValue(old,row)) {
+            batch.set(dbCloud.collection("staffPublic").doc(id),{
+              id,name:row.name||"",role:row.role,active:row.active!==false,
+              legacyId:row.legacyId||""
+            });
+            batch.set(dbCloud.collection("staffPrivate").doc(id),{
+              email:(row.email||"").toLowerCase(),mobile:row.mobile||""
+            });
+            writes+=2;
+          }
+        }
+        for (const row of newUsers.filter(u=>u.preapproved || !oldById.has(u.id))) {
+          if (!row.email) continue;
+          batch.set(dbCloud.collection("staffInvites").doc(row.email.toLowerCase()),{
+            email:row.email.toLowerCase(),role:row.role==="admin"?"admin":"collector",
+            active:row.active!==false,name:row.name||"",mobile:row.mobile||"",
+            legacyId:row.legacyId||""
+          });
+          writes++;
+        }
+        for (const [id,row] of oldById) {
+          if (!newById.has(id)) {
+            batch.set(dbCloud.collection("staffPublic").doc(id),{
+              id,name:row.name||"",role:row.role,active:false
+            });
+            writes++;
+          }
+        }
+      }
+      if (!sameValue(dbBaseline.labels||[],db.labels||[]) && admin()) {
+        batch.set(dbCloud.collection("expenseSettings").doc("labels"),{labels:db.labels||[]});
+        writes++;
+      }
+      if (writes>450) throw Error("This change includes more than 450 records. Split it into smaller saves and try again.");
+      if (writes) await batch.commit();
+      dbBaseline=cloneValue(db);
     } catch(e) {
       console.error("Save failed:",e);
       throw e;
     }
   });
-  saveQueue = task.catch(()=>{});
+  saveQueue=task.catch(()=>{});
   return task;
 }
 let userId = null;
@@ -268,10 +451,11 @@ let selectedDay = today();
 let clientQuery = "";
 
 const user = () => db?.users?.find(u=>u.id===userId);
-const admin = () => !!signedInUser && (signedInUser.email||"").toLowerCase()===ADMIN_EMAIL && user()?.role==="admin";
+const isAdminEmail = email => ADMIN_EMAILS.has((email||"").toLowerCase());
+const admin = () => !!signedInUser && signedInUser.emailVerified===true && (authRole==="admin" || user()?.role==="admin") && user()?.active!==false;
 
 function requireUser() {
-  if (!signedInUser || !user()) throw Error("Please sign in with the authorized administrator account.");
+  if (!signedInUser || !user() || user()?.active===false) throw Error("Your staff account is not active.");
 }
 function requireAdmin() {
   requireUser();
@@ -304,7 +488,9 @@ async function commit(action,entity) {
 }
 
 function activeShift(id=userId) {
-  return db.shifts.find(s=>s.userId===id && !s.endedAt);
+  const staff=db.users?.find(u=>u.id===id);
+  const ids=new Set([id,staff?.legacyId].filter(Boolean));
+  return db.shifts.find(s=>ids.has(s.userId) && !s.endedAt);
 }
 function reversed(paymentId) {
   return db.reversals.some(r=>r.paymentId===paymentId);
@@ -326,7 +512,7 @@ function ensureBills() {
       });
       changed=true;
     }
-    if (!c.start || !c.schedules.length) continue;
+    if (c.active===false || !c.start || !c.schedules.length) continue;
     for (let m=c.start; m<=thisMonth(); m=nextMonth(m)) {
       const s=[...c.schedules].reverse().find(s=>s.from<=m);
       if (!s || s.fee===null || !s.due) continue;
@@ -359,14 +545,18 @@ function overdue(clientId,day=today()) {
     .filter(i=>i.due<day).reduce((total,i)=>total+i.remaining,0);
 }
 function cashHeld(id) {
+  const staff=db.users?.find(u=>u.id===id);
+  const ids=new Set([id,staff?.legacyId].filter(Boolean));
   const cash=sum(db.payments.filter(p=>
-    p.recorderId===id && p.method==="Cash" && !reversed(p.id)));
+    ids.has(p.recorderId) && p.method==="Cash" && !reversed(p.id)));
   const handed=sum(db.handovers.filter(h=>
-    h.collectorId===id && h.status==="Confirmed"));
+    ids.has(h.collectorId) && h.status==="Confirmed"));
   return cash-handed;
 }
 function pendingHandovers(id) {
-  return db.handovers.filter(h=>h.collectorId===id && h.status==="Pending");
+  const staff=db.users?.find(u=>u.id===id);
+  const ids=new Set([id,staff?.legacyId].filter(Boolean));
+  return db.handovers.filter(h=>ids.has(h.collectorId) && h.status==="Pending");
 }
 function availableCash(id) {
   return cashHeld(id)-sum(pendingHandovers(id));
@@ -398,42 +588,42 @@ function clientName(id) {
   return db.clients.find(c=>c.id===id)?.name || "Unknown client";
 }
 function userName(id) {
-  return db.users.find(u=>u.id===id)?.name || "Unknown user";
+  return db.users.find(u=>u.id===id || u.legacyId===id)?.name || "Unknown user";
 }
 function render() {
   $("logoutButton").hidden=!signedInUser;
   $("signedInAs").textContent=signedInUser ? signedInUser.email : "";
-  if (!signedInUser || !admin() || !user()) {
+  if (!signedInUser || !user()) {
     $("nav").innerHTML="";
-    $("main").innerHTML=`<div class="card"><h2>Administrator sign in</h2>
-      <p>Use the authorized owner email address to access the tracker.</p>
+    $("main").innerHTML=`<div class="card"><h2>Staff sign in</h2>
+      <p>Use your Firebase email and password. Access is granted only to active, approved staff accounts.</p>
       <form id="loginForm">
         <label>Email address<input name="email" type="email" autocomplete="username" required></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
         <div class="toolbar"><button class="primary" type="submit">Sign in</button>
         <button type="button" id="resetPassword">Send password reset</button></div>
       </form>
-      <p class="muted">Only the authorized administrator can sign in in this release. Collector access is intentionally unavailable until individual staff permissions are implemented.</p>
+      <p class="muted">Sign in with an authorized administrator or staff account. An administrator must approve staff access first.</p>
       <p id="loginError" role="alert"></p></div>`;
     $("loginForm").onsubmit=async event=>{
       event.preventDefault();
       const form=new FormData(event.target);
       const email=String(form.get("email")).trim().toLowerCase();
-      if(email!==ADMIN_EMAIL){$("loginError").textContent="This account is not authorized.";return;}
+      
       try { await auth.signInWithEmailAndPassword(email,String(form.get("password"))); }
       catch(error){$("loginError").textContent="Sign in failed: "+error.message;}
     };
     $("resetPassword").onclick=async()=>{
       const email=$("loginForm").elements.email.value.trim().toLowerCase();
-      if(email!==ADMIN_EMAIL){$("loginError").textContent="Enter the authorized administrator email first.";return;}
+      
       try { await auth.sendPasswordResetEmail(email); $("loginError").textContent="Password reset email sent."; }
       catch(error){$("loginError").textContent="Could not send reset email: "+error.message;}
     };
     return;
   }
-  ensureBills();
+  if (admin()) ensureBills();
   const pages=["Dashboard","Clients","Payments","Expenses","Calendar","Cash","Reminders"];
-  if (admin()) pages.push("Plans","Reports");
+  if (admin()) pages.push("Plans","Staff","Reports");
   if (!pages.includes(page)) page="Dashboard";
   $("nav").innerHTML=pages.map(p=>`<button class="${page===p?"active":""}"
     onclick="go('${p}')">${p}</button>`).join("");
@@ -470,21 +660,40 @@ function dashboard() {
     </div><div class="card">
     <p><strong>Gross income:</strong> recorded collections minus recorded expenses,
     using your requested label. Reversals are deducted on their reversal date.</p>
-    <p class="muted">Local-device totals only. This prototype has no cloud synchronization.</p>
+    <p class="muted">Records are saved to Firebase and sync across signed-in devices while online.</p>
     <h3>Collections by staff — this month</h3>
     ${table(["Staff","Collections","Cash held"],db.users.map(u=>`<tr>
       <td>${esc(u.name)}</td>
-      <td>${money(sum(entries.filter(p=>p.recorderId===u.id &&
+      <td>${money(sum(entries.filter(p=>[u.id,u.legacyId].filter(Boolean).includes(p.recorderId) &&
         monthOf(p.date)===thisMonth())))}</td>
       <td>${money(cashHeld(u.id))}</td></tr>`))}
     </div>`;
 }
+function normalizeClientSearch(value) {
+  return String(value || "").normalize("NFKD").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+function clientAccountPrefix(address) {
+  return normalizeClientSearch(address).replace(/[^A-Z]/g, "").slice(0,3);
+}
+function nextClientAccount(address) {
+  const prefix=clientAccountPrefix(address);
+  if (prefix.length!==3) return "";
+  const used=new Set(db.clients.map(c=>{
+    const match=String(c.account || "").toUpperCase().match(new RegExp("^"+prefix+"-(\\d{3})$"));
+    return match?Number(match[1]):null;
+  }).filter(Number.isInteger));
+  for (let number=1; number<=999; number++) if (!used.has(number)) return prefix+"-"+String(number).padStart(3,"0");
+  return "";
+}
 function clientsView() {
-  const list=db.clients.filter(c=>
-    [c.name,c.account,c.phone,c.address].join(" ").toLowerCase()
-      .includes(clientQuery.toLowerCase()));
+  const terms=normalizeClientSearch(clientQuery).split(/\s+/).filter(Boolean);
+  const list=db.clients.filter(c=>{
+    const due=c.schedules.at(-1)?.due;
+    const searchable=normalizeClientSearch([c.name,c.account,c.phone,c.address,due,due==null?"":"due "+due].join(" "));
+    return terms.every(term=>searchable.includes(term));
+  });
   return `<h2>Clients</h2><div class="toolbar">
-    <input placeholder="Search name, account, phone, address"
+    <input type="search" aria-label="Search clients by name, account, phone, address, or due day" placeholder="Search name, account, phone, address, or due day"
       value="${esc(clientQuery)}" oninput="searchClients(this.value)">
     ${admin()?`<button class="primary" onclick="clientForm()">Add client</button>
       <button onclick="document.getElementById('csvFile').click()">Import CSV</button>
@@ -493,19 +702,48 @@ function clientsView() {
       ["Name / Account","Contact","Plan / Monthly due","Due day","Balance","Actions"],
       list.map(c=>{
         const s=c.schedules.at(-1);
+        const addressKey=normalizeClientSearch(c.address);
+        const sameAddress=addressKey?db.clients.filter(other=>normalizeClientSearch(other.address)===addressKey).length:0;
+        const sameDue=s?.due==null?0:db.clients.filter(other=>other.schedules.at(-1)?.due===s.due).length;
+        const sameAddressAndDue=!addressKey||s?.due==null?0:db.clients.filter(other=>normalizeClientSearch(other.address)===addressKey&&other.schedules.at(-1)?.due===s.due).length;
+        const shared=[sameAddressAndDue>1?`<span class="badge">Same address and due day: ${sameAddressAndDue}</span>`:"",sameAddress>1?`<span class="badge">Same address: ${sameAddress}</span>`:"",sameDue>1?`<span class="badge">Same due day: ${sameDue}</span>`:""].filter(Boolean).join(" ");
         return `<tr><td>${esc(c.name)}<br><small>${esc(c.account)}</small></td>
-          <td>${esc(c.phone)}<br><small>${esc(c.address)}</small></td>
+          <td>${esc(c.phone)}<br><small>${esc(c.address)}</small>${shared?`<br>${shared}`:""}</td>
           <td>${esc(s?.plan || "Not set")}<br>
             ${s?.fee!==null && s?.fee!==undefined?money(s.fee):"Not set"}
             ${s?.from>thisMonth()?`<br><small>Effective ${esc(s.from)}</small>`:""}
           </td><td>${s?.due || "Not set"}</td>
           <td>${money(balance(c.id))}
             ${overdue(c.id)>0?'<span class="badge bad">Overdue</span>':""}</td>
-          <td><button onclick="paymentForm('${c.id}')">Pay</button>
+          <td>${c.active===false?'<span class="badge warn">Inactive</span>':'<span class="badge">Active</span>'}
+            <button onclick="paymentForm('${c.id}')" ${c.active===false?"disabled":""}>Pay</button>
             <button onclick="statement('${c.id}')">History</button>
-            ${admin()?`<button onclick="clientForm('${c.id}')">Edit</button>`:""}
+            ${admin()?`<button onclick="clientForm('${c.id}')">Edit</button>
+              <button onclick="toggleClientActive('${c.id}')">${c.active===false?"Reactivate":"Deactivate"}</button>
+              <button class="danger" onclick="deleteClient('${c.id}')">Delete</button>`:""}
           </td></tr>`;
       }))}</div>`;
+}
+function toggleClientActive(id) {
+  requireAdmin();
+  const client=db.clients.find(c=>c.id===id);
+  if(!client) return;
+  const activating=client.active===false;
+  const message=activating ? "Reactivate "+client.name+"? Monthly billing will resume from its saved schedule." : "Deactivate "+client.name+"? Existing invoices and payment history will remain, but no new monthly bills will be generated.";
+  if(!confirm(message)) return;
+  client.active=activating;
+  commit(activating?"Client reactivated":"Client deactivated",id);
+}
+function deleteClient(id) {
+  requireAdmin();
+  const client=db.clients.find(c=>c.id===id);
+  if(!client) return;
+  const hasInvoices=db.invoices.some(i=>i.clientId===id);
+  const hasPayments=db.payments.some(p=>p.clientId===id);
+  if(hasInvoices || hasPayments) return notify("This client has billing or payment history. Deactivate instead; financial history cannot be permanently deleted here.");
+  if(!confirm("Permanently delete "+client.name+"? This cannot be undone.")) return;
+  db.clients=db.clients.filter(c=>c.id!==id);
+  commit("Client permanently deleted",id);
 }
 function searchClients(value) {
   clientQuery=value;
@@ -538,9 +776,9 @@ function clientForm(id="") {
   const s=c?.schedules.at(-1);
   openForm(c?"Edit client":"Add client",`
     ${field("Name *","name",c?.name || "","text","required")}
-    ${field("Address","address",c?.address || "")}
+    <label>Address<input name="address" value="${esc(c?.address || "")}" ${c?"":"required"}></label>
     ${field("Phone number","phone",c?.phone || "","tel")}
-    ${field("Account number","account",c?.account || "")}
+    ${c?`<p>Account number: <strong>${esc(c.account || "Not set")}</strong></p>`:`<p class="muted">Account number will be assigned automatically when you save this client.</p>`}
     <label>Choose a saved plan
       <select onchange="fillPlan(this.value)">
         <option value="">Custom / leave blank</option>
@@ -562,15 +800,17 @@ function clientForm(id="") {
     requireAdmin();
     const name=f.get("name").trim();
     if (!name) throw Error("Client name is required.");
-    const account=f.get("account").trim();
+    const address=f.get("address").trim();
+    const account=c?(c.account||nextClientAccount(address)):nextClientAccount(address);
+    if (!account) throw Error("Enter an address with at least three letters so an account number can be generated.");
     if (account && db.clients.some(x=>x.account===account && x.id!==id))
-      throw Error("That account number already exists.");
+      throw Error("The generated account number already exists. Try again.");
     const fee=cents(f.get("fee"),true);
     const due=f.get("due")===""?null:Number(f.get("due"));
     if (due!==null && (!Number.isInteger(due)||due<1||due>31))
       throw Error("Due day must be 1–31.");
     const profile={
-      name,address:f.get("address").trim(),phone:f.get("phone").trim(),account
+      name,address,phone:f.get("phone").trim(),account
     };
     const schedule={plan:f.get("plan").trim(),fee,due};
     if (c) {
@@ -618,11 +858,12 @@ function paymentsView() {
 }
 function paymentForm(clientId="") {
   requireUser();
+  if (clientId && db.clients.find(c=>c.id===clientId)?.active===false) return notify("This client is inactive. Reactivate the client before recording a payment.");
   if (!db.clients.length) return notify("The admin must add a client first.");
   if (!admin() && !activeShift()) return notify("Start your shift before recording payments.");
   openForm("Record payment",`
     <label>Client<select name="clientId" required>
-      ${db.clients.map(c=>`<option value="${c.id}" ${c.id===clientId?"selected":""}>
+      ${db.clients.filter(c=>c.active!==false).map(c=>`<option value="${c.id}" ${c.id===clientId?"selected":""}>
         ${esc(c.name)} — ${esc(c.account)} — balance ${money(balance(c.id))}
       </option>`).join("")}
     </select></label>
@@ -636,6 +877,8 @@ function paymentForm(clientId="") {
   `,f=>{
     requireUser();
     if (!admin() && !activeShift()) throw Error("Start a shift first.");
+    const selectedClient=db.clients.find(c=>c.id===f.get("clientId"));
+    if (!selectedClient || selectedClient.active===false) throw Error("Choose an active client before recording payment.");
     const amount=cents(f.get("amount"));
     if (amount<=0) throw Error("Payment must be greater than zero.");
     const id=uuid();
@@ -724,11 +967,20 @@ function expensesView() {
     ${admin()?`<button class="primary" onclick="expenseForm()">Add expense</button>
       <button onclick="addLabel()">Add expense label</button>`:""}
     </div><div class="card">${table(
-      ["Date","Label","Description","Amount","Recorded by"],
+      ["Date","Label","Description","Amount","Recorded by",...(admin()?["Action"]:[])],
       [...db.expenses].reverse().map(e=>`<tr>
         <td>${esc(e.date)}</td><td>${esc(e.label)}</td>
         <td>${esc(e.description)}</td><td>${money(e.amount)}</td>
-        <td>${esc(e.recorderEmail)}</td></tr>`))}</div>`;
+        <td>${esc(e.recorderEmail)}</td>
+        ${admin()?`<td><button class="danger" onclick="deleteExpense('${e.id}')">Delete</button></td>`:""}</tr>`))}</div>`;
+}
+function deleteExpense(id) {
+  requireAdmin();
+  const expense=db.expenses.find(e=>e.id===id);
+  if(!expense) return;
+  if(!confirm("Permanently delete this expense of "+money(expense.amount)+" dated "+expense.date+"?")) return;
+  db.expenses=db.expenses.filter(e=>e.id!==id);
+  commit("Expense permanently deleted",id);
 }
 function addLabel() {
   requireAdmin();
@@ -771,7 +1023,7 @@ function calendarForecast(month) {
       .map(i => ({ ...i, projected: false }));
 
     // Generate temporary monthly bills for this calendar forecast.
-    if (c.start && c.schedules.length) {
+    if (c.active!==false && c.start && c.schedules.length) {
       for (
         let billingMonth = c.start;
         billingMonth <= month;
@@ -914,11 +1166,9 @@ function calendarView() {
     <h2>Calendar</h2>
 
     <div class="toolbar">
-      <input
-        type="month"
-        value="${calendarMonth}"
-        onchange="setMonth(this.value)"
-      >
+      <button onclick="shiftCalendarMonth(-1)" ${calendarMonth<="2026-01"?"disabled":""}>Previous</button>
+      <input type="month" min="2026-01" max="2050-12" value="${calendarMonth}" onchange="setMonth(this.value)">
+      <button onclick="shiftCalendarMonth(1)" ${calendarMonth>="2050-12"?"disabled":""}>Next</button>
       ${isFuture
         ? '<span class="badge warn">Future billing forecast</span>'
         : ""}
@@ -998,15 +1248,27 @@ function calendarView() {
   `;
 }function selectDay(day) { selectedDay=day; render(); }
 function setMonth(month) {
-  if (!month) return;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month || "")) return;
+  const year=Number(month.slice(0,4));
+  if(year<2026 || year>2050) return notify("Calendar supports 2026 through 2050.");
   calendarMonth=month;
-  selectedDay=`${month}-01`;
+  selectedDay=month+"-01";
   render();
+}
+function shiftCalendarMonth(delta) {
+  const parts=calendarMonth.split("-").map(Number);
+  const d=new Date(Date.UTC(parts[0],parts[1]-1+delta,1));
+  const target=d.toISOString().slice(0,7);
+  const year=Number(target.slice(0,4));
+  if(year<2026 || year>2050) return;
+  setMonth(target);
 }
 
 function cashView() {
   const visible=admin()?db.users:db.users.filter(u=>u.id===userId);
-  const handovers=admin()?db.handovers:db.handovers.filter(h=>h.collectorId===userId);
+  const currentStaff=db.users.find(u=>u.id===userId);
+  const ownIds=new Set([userId,currentStaff?.legacyId].filter(Boolean));
+  const handovers=admin()?db.handovers:db.handovers.filter(h=>ownIds.has(h.collectorId));
   return `<h2>Cash handovers</h2><div class="grid">
     ${visible.map(u=>metric(`${u.name}: cash held`,money(cashHeld(u.id)))).join("")}
     </div>
@@ -1026,7 +1288,7 @@ function cashView() {
       </tr>`))}
     <h3>Shifts</h3>
     ${table(["Collector","Started","Ended","Status"],
-      db.shifts.filter(s=>admin() || s.userId===userId).map(s=>`<tr>
+      db.shifts.filter(s=>admin() || ownIds.has(s.userId)).map(s=>`<tr>
         <td>${esc(userName(s.userId))}</td><td>${esc(s.startedAt)}</td>
         <td>${esc(s.endedAt || "")}</td><td>${s.endedAt?"Closed":"Open"}</td></tr>`))}
     </div>`;
@@ -1141,13 +1403,27 @@ function planForm(id="") {
   });
 }
 function staffView() {
-  return `<h2>Pre-approved staff</h2><div class="toolbar">
-    <button class="primary" onclick="staffForm()">Add staff account</button></div>
-    <div class="card">${table(["Name","Email","Mobile","Role"],
-      db.users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
-        <td>${esc(u.mobile)}</td><td>${esc(u.role)}</td></tr>`))}
-    <p class="muted">These are demo profiles, not authenticated accounts.
-      Email addresses are saved for the future reminder integration.</p></div>`;
+  const rows=db.users.map(u=>{
+    const access=u.email?.toLowerCase()===OWNER_EMAIL
+      ? "Owner"
+      : '<button onclick="toggleStaffActive(\''+esc(u.id)+'\')">'+(u.active===false?"Enable":"Disable")+'</button>';
+    const status=u.active===false?"Disabled":u.preapproved?"Awaiting sign-in":"Active";
+    return "<tr><td>"+esc(u.name)+"</td><td>"+esc(u.email)+"</td><td>"+
+      esc(u.mobile)+"</td><td>"+esc(u.role)+"</td><td>"+status+
+      "</td><td>"+access+"</td></tr>";
+  });
+  return "<h2>Staff access</h2><p class='muted'>Pre-approve a Firebase email account and choose its role. The person must create their own Firebase password and verify their email before access is granted.</p><div class='toolbar'><button class='primary' onclick='staffForm()'>Approve staff email</button></div><div class='card'>"+
+    table(["Name","Email","Mobile","Role","Status","Access"],rows)+
+    "<p class='muted'>Pre-approval alone does not create an Authentication account. New staff accounts enroll against their UID on first verified sign-in.</p></div>";
+}
+function toggleStaffActive(id) {
+  requireAdmin();
+  const member=db.users.find(u=>u.id===id);
+  if (!member || member.email?.toLowerCase()===OWNER_EMAIL) return;
+  const disabling=member.active!==false;
+  if (!confirm((disabling?"Disable":"Enable")+" access for "+member.email+"?")) return;
+  member.active=!disabling;
+  commit(disabling?"Staff access disabled":"Staff access enabled",id);
 }
 function staffForm() {
   requireAdmin();
@@ -1358,23 +1634,16 @@ window.addEventListener("beforeunload",event=>{
 
 // Authentication is checked before any business data is read.
 auth.onAuthStateChanged(async authUser=>{
+  stopCloudSync();
   signedInUser=authUser;
   userId=null;
+  authRole=null;
   if (!authUser) { render(); return; }
-  if ((authUser.email||"").toLowerCase()!==ADMIN_EMAIL) {
-    await auth.signOut();
-    render();
-    return;
-  }
   if (!authUser.emailVerified) {
     $("nav").innerHTML="";
     $("logoutButton").hidden=false;
     $("signedInAs").textContent=authUser.email;
-    $("main").innerHTML=`<div class="card"><h2>Verify your administrator email</h2>
-      <p>Firebase requires the owner email to be verified before the tracker can access business records.</p>
-      <div class="toolbar"><button class="primary" id="sendVerification">Send verification email</button>
-      <button id="checkVerification">I have verified — check again</button></div>
-      <p id="verificationMessage" role="status"></p></div>`;
+    $("main").innerHTML="<div class='card'><h2>Verify your email</h2><p>Firebase requires a verified email before the tracker can load business records.</p><div class='toolbar'><button class='primary' id='sendVerification'>Send verification email</button><button id='checkVerification'>I have verified — check again</button></div><p id='verificationMessage' role='status'></p></div>";
     $("sendVerification").onclick=async()=>{
       try { await authUser.sendEmailVerification(); $("verificationMessage").textContent="Verification email sent. Check your inbox and spam folder."; }
       catch(error){$("verificationMessage").textContent="Could not send verification email: "+error.message;}
@@ -1388,20 +1657,72 @@ auth.onAuthStateChanged(async authUser=>{
     return;
   }
   try {
-    await loadDb();
-    if (!db.users) db.users=[];
-    let owner=db.users.find(u=>u.role==="admin" && (u.email||"").toLowerCase()===ADMIN_EMAIL);
-    if (!owner) {
-      owner=db.users.find(u=>u.role==="admin");
-      if (owner) { owner.email=ADMIN_EMAIL; owner.name=owner.name||"Administrator"; }
-      else { owner={id:"admin",name:"Administrator",email:ADMIN_EMAIL,mobile:"",role:"admin"}; db.users.push(owner); }
-      await save();
+    const uid=authUser.uid;
+    const email=(authUser.email||"").trim().toLowerCase();
+    const publicRef=dbCloud.collection("staffPublic").doc(uid);
+    let publicSnap=await publicRef.get();
+    let publicProfile=publicSnap.exists?publicSnap.data():null;
+    let invite=null;
+    const inviteSnap=await dbCloud.collection("staffInvites").doc(email).get();
+    if (inviteSnap.exists && inviteSnap.data().active===true) invite=inviteSnap.data();
+    if (!publicProfile) {
+      if (!isAdminEmail(email) && !invite)
+        throw Error("This email has not been approved for tracker access. Ask an administrator to add it to Staff.");
+      const role=isAdminEmail(email)?"admin":invite.role;
+      const name=isAdminEmail(email)?"Administrator":(invite.name||email.split("@")[0]);
+      const privateRef=dbCloud.collection("staffPrivate").doc(uid);
+      await publicRef.set({id:uid,name,role,active:true,legacyId:invite?.legacyId||""});
+      await privateRef.set({email,mobile:invite?.mobile||""});
+      publicProfile={id:uid,name,role,active:true,legacyId:invite?.legacyId||""};
     }
-    userId=owner.id;
+    if (publicProfile.active===false) throw Error("This staff account is inactive. Ask an administrator for access.");
+    const privateRef=dbCloud.collection("staffPrivate").doc(uid);
+    const privateSnap=await privateRef.get();
+    if (!privateSnap.exists)
+      await privateRef.set({email,mobile:invite?.mobile||""});
+    if (isAdminEmail(email) && publicProfile.role!=="admin") {
+      await publicRef.update({role:"admin"});
+      publicProfile.role="admin";
+    }
+    if (!publicProfile.legacyId && invite?.legacyId) {
+      publicProfile.legacyId=invite.legacyId;
+      if (isAdminEmail(email)) await publicRef.update({legacyId:invite.legacyId});
+    }
+    if (!["admin","collector"].includes(publicProfile.role))
+      throw Error("This account has an unsupported role.");
+    authRole=publicProfile.role;
+    myLegacyStaffId=publicProfile.legacyId||null;
+    userId=uid;
+    await loadDb();
+    startCloudSync();
+    if (!collectionsMode) {
+      if (authRole!=="admin") throw Error("Collector access is waiting for the approved collection-based data migration.");
+      let legacyAccount=db.users.find(u=>(u.email||"").toLowerCase()===email);
+      if (!legacyAccount) {
+        legacyAccount={id:uid,name:publicProfile.name||"Administrator",email,mobile:"",role:"admin"};
+        db.users.push(legacyAccount);
+        await save();
+      } else if (legacyAccount.role!=="admin") {
+        legacyAccount.role="admin";
+        await save();
+      }
+      if (legacyAccount.id!==uid && publicProfile.legacyId!==legacyAccount.id) {
+        publicProfile.legacyId=legacyAccount.id;
+        const currentProfile=db.users.find(row=>row.id===uid);
+        if (currentProfile) currentProfile.legacyId=legacyAccount.id;
+        await publicRef.update({legacyId:legacyAccount.id});
+      }
+      userId=legacyAccount.id;
+    } else if (!db.users.some(u=>u.id===uid)) {
+      throw Error("The staff profile is not available in the migrated tracker data.");
+    }
     render();
   } catch(e) {
     console.error("Failed to load tracker data:",e);
-    $("main").innerHTML="<div class='card'><h2>Unable to load tracker data</h2><p>Check Firebase Authentication and Firestore security rules. Existing data has not been overwritten.</p><p>"+esc(e.message)+"</p></div>";
+    $("nav").innerHTML="";
+    $("logoutButton").hidden=false;
+    $("signedInAs").textContent=authUser.email;
+    $("main").innerHTML="<div class='card'><h2>Unable to open tracker</h2><p>"+esc(e.message)+"</p><p>Contact the administrator if your account should have access.</p></div>";
   }
 });
 </script>
