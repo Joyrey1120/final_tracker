@@ -10,6 +10,7 @@
 const admin = require("firebase-admin");
 
 const PROJECT_ID = "final-tracker-743c3";
+const ADMIN_EMAILS = new Set(["sagarinojoyrey@gmail.com", "dictomesagarino@gmail.com"]);
 const SOURCE = ["prototypes", "isp-tracker"];
 const COLLECTIONS = [
   "plans", "clients", "invoices", "payments", "reversals",
@@ -72,7 +73,7 @@ async function main() {
       id: u.email.trim().toLowerCase(),
       data: {
         email: u.email.trim().toLowerCase(),
-        role: u.role === "admin" ? "admin" : "collector",
+        role: ADMIN_EMAILS.has(u.email.trim().toLowerCase()) ? "admin" : "collector",
         active: true,
         name: String(u.name || ""),
         mobile: String(u.mobile || ""),
