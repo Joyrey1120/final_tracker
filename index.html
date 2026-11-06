@@ -326,7 +326,7 @@ function ensureBills() {
       });
       changed=true;
     }
-    if (!c.start || !c.schedules.length) continue;
+    if (c.active===false || !c.start || !c.schedules.length) continue;
     for (let m=c.start; m<=thisMonth(); m=nextMonth(m)) {
       const s=[...c.schedules].reverse().find(s=>s.from<=m);
       if (!s || s.fee===null || !s.due) continue;
@@ -501,11 +501,35 @@ function clientsView() {
           </td><td>${s?.due || "Not set"}</td>
           <td>${money(balance(c.id))}
             ${overdue(c.id)>0?'<span class="badge bad">Overdue</span>':""}</td>
-          <td><button onclick="paymentForm('${c.id}')">Pay</button>
+          <td>${c.active===false?'<span class="badge warn">Inactive</span>':'<span class="badge">Active</span>'}
+            <button onclick="paymentForm('${c.id}')" ${c.active===false?"disabled":""}>Pay</button>
             <button onclick="statement('${c.id}')">History</button>
-            ${admin()?`<button onclick="clientForm('${c.id}')">Edit</button>`:""}
+            ${admin()?`<button onclick="clientForm('${c.id}')">Edit</button>
+              <button onclick="toggleClientActive('${c.id}')">${c.active===false?"Reactivate":"Deactivate"}</button>
+              <button class="danger" onclick="deleteClient('${c.id}')">Delete</button>`:""}
           </td></tr>`;
       }))}</div>`;
+}
+function toggleClientActive(id) {
+  requireAdmin();
+  const client=db.clients.find(c=>c.id===id);
+  if(!client) return;
+  const activating=client.active===false;
+  const message=activating ? "Reactivate "+client.name+"? Monthly billing will resume from its saved schedule." : "Deactivate "+client.name+"? Existing invoices and payment history will remain, but no new monthly bills will be generated.";
+  if(!confirm(message)) return;
+  client.active=activating;
+  commit(activating?"Client reactivated":"Client deactivated",id);
+}
+function deleteClient(id) {
+  requireAdmin();
+  const client=db.clients.find(c=>c.id===id);
+  if(!client) return;
+  const hasInvoices=db.invoices.some(i=>i.clientId===id);
+  const hasPayments=db.payments.some(p=>p.clientId===id);
+  if(hasInvoices || hasPayments) return notify("This client has billing or payment history. Deactivate instead; financial history cannot be permanently deleted here.");
+  if(!confirm("Permanently delete "+client.name+"? This cannot be undone.")) return;
+  db.clients=db.clients.filter(c=>c.id!==id);
+  commit("Client permanently deleted",id);
 }
 function searchClients(value) {
   clientQuery=value;
@@ -780,7 +804,7 @@ function calendarForecast(month) {
       .map(i => ({ ...i, projected: false }));
 
     // Generate temporary monthly bills for this calendar forecast.
-    if (c.start && c.schedules.length) {
+    if (c.active!==false && c.start && c.schedules.length) {
       for (
         let billingMonth = c.start;
         billingMonth <= month;
