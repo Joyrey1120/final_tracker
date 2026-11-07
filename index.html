@@ -90,6 +90,7 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   border-radius:10px; z-index:20; max-width:90%;
 }
 .empty { padding:20px; color:var(--muted) }
+.shift-status { color:#cbd5e1; font-size:12px; }
 @media(max-width:600px) {
   main { padding:12px }
   .day { min-height:85px; padding:5px }
@@ -106,6 +107,8 @@ label input,label select,label textarea { width:100%; margin-top:5px }
   </div>
   <div class="toolbar" style="margin:0">
     <span id="signedInAs" aria-live="polite"></span>
+    <span id="shiftStatus" class="shift-status" aria-live="polite" hidden></span>
+    <button id="shiftButton" class="primary" onclick="toggleShift()" hidden>Start shift</button>
     <button id="logoutButton" onclick="logout()" hidden>Log out</button>
   </div>
 </header>
@@ -371,9 +374,15 @@ function save() {
         const adminOnly=["plans","clients","invoices","expenses","reversals"];
         if (adminOnly.includes(name) && !admin()) continue;
         if (name==="shifts" && !admin()) {
-          persistRows(name,dbBaseline.shifts||[],db.shifts||[],
-            (next,old)=>!!next && !!old && old.userId===auth.currentUser.uid
-              && !old.endedAt && !!next.endedAt);
+          const ownShiftIds=[auth.currentUser.uid,myLegacyStaffId].filter(Boolean);
+          persistRows(name,dbBaseline.shifts||[],db.shifts||[],(next,old)=>{
+            if (!next) return false;
+            if (!old) return next.userId===auth.currentUser.uid
+              && next.endedAt===null && !!next.startedAt;
+            return ownShiftIds.includes(old.userId) && !old.endedAt
+              && next.userId===old.userId && next.startedAt===old.startedAt
+              && !!next.endedAt;
+          });
           continue;
         }
         if (name==="handovers" && !admin()) {
@@ -593,6 +602,16 @@ function userName(id) {
 function render() {
   $("logoutButton").hidden=!signedInUser;
   $("signedInAs").textContent=signedInUser ? signedInUser.email : "";
+  const collectorSignedIn=!!signedInUser && !!user() && !admin();
+  $("shiftButton").hidden=!collectorSignedIn;
+  $("shiftStatus").hidden=!collectorSignedIn;
+  if (collectorSignedIn) {
+    const shift=activeShift();
+    $("shiftButton").textContent=shift ? "End shift" : "Start shift";
+    $("shiftStatus").textContent=shift
+      ? "Shift active · started "+new Date(shift.startedAt).toLocaleString("en-PH",{timeZone:"Asia/Manila"})
+      : "Shift not started";
+  }
   if (!signedInUser || !user()) {
     $("nav").innerHTML="";
     $("main").innerHTML=`<div class="card"><h2>Staff sign in</h2>
@@ -1337,18 +1356,22 @@ function canEndShift() {
   }
   return true;
 }
-function toggleShift() {
-  requireUser();
-  if (admin()) return;
-  const s=activeShift();
-  if (s) {
-    if (!canEndShift()) return;
-    s.endedAt=new Date().toISOString();
-    commit("Shift ended",s.id);
-  } else {
-    const created={id:uuid(),userId,startedAt:new Date().toISOString(),endedAt:null};
-    db.shifts.push(created);
-    commit("Shift started",created.id);
+async async function toggleShift() {
+  try {
+    requireUser();
+    if (admin()) return;
+    const s=activeShift();
+    if (s) {
+      if (!canEndShift()) return;
+      s.endedAt=new Date().toISOString();
+      await commit("Shift ended",s.id);
+    } else {
+      const created={id:uuid(),userId,startedAt:new Date().toISOString(),endedAt:null};
+      db.shifts.push(created);
+      await commit("Shift started",created.id);
+    }
+  } catch(error) {
+    notify(error.message);
   }
 }
 async function logout() {
