@@ -603,7 +603,7 @@ function render() {
   $("logoutButton").hidden=!signedInUser;
   $("signedInAs").textContent=signedInUser ? signedInUser.email : "";
   const collectorSignedIn=!!signedInUser && !!user() && !admin();
-  $("shiftButton").hidden=!collectorSignedIn;
+  $("shiftButton").hidden=false;
   $("shiftStatus").hidden=!collectorSignedIn;
   if (collectorSignedIn) {
     const shift=activeShift();
