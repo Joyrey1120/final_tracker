@@ -374,9 +374,15 @@ function save() {
         const adminOnly=["plans","clients","invoices","expenses","reversals"];
         if (adminOnly.includes(name) && !admin()) continue;
         if (name==="shifts" && !admin()) {
-          persistRows(name,dbBaseline.shifts||[],db.shifts||[],
-            (next,old)=>!!next && !!old && old.userId===auth.currentUser.uid
-              && !old.endedAt && !!next.endedAt);
+          const ownShiftIds=[auth.currentUser.uid,myLegacyStaffId].filter(Boolean);
+          persistRows(name,dbBaseline.shifts||[],db.shifts||[],(next,old)=>{
+            if (!next) return false;
+            if (!old) return next.userId===auth.currentUser.uid
+              && next.endedAt===null && !!next.startedAt;
+            return ownShiftIds.includes(old.userId) && !old.endedAt
+              && next.userId===old.userId && next.startedAt===old.startedAt
+              && !!next.endedAt;
+          });
           continue;
         }
         if (name==="handovers" && !admin()) {
@@ -1350,7 +1356,7 @@ function canEndShift() {
   }
   return true;
 }
-async function toggleShift() {
+async async function toggleShift() {
   try {
     requireUser();
     if (admin()) return;
